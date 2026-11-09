@@ -1,0 +1,17 @@
+# .NET build & publish outputs
+**/bin/
+**/obj/
+publish/
+
+# Local & production environment configuration overrides
+**/appsettings.Production.json
+**/appsettings.Local.json
+
+# AI assistant local context
+GEMINI.md
+
+# IDE / OS files
+.vs/
+.vscode/
+Thumbs.db
+.DS_Store

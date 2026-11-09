@@ -1,0 +1,13 @@
+Department;Short name;Department structured name;Parent department structured name;Functional shortcut;Tree level;Manager;Deputy manager;AD container for new hires
+My Demo Corp;MDC;My Demo Corp;;MDC;1;CARTERJ;MORGANE;OU=Employees,DC=mydemocorp,DC=example,DC=com
+Corporate Operations;MDC-OPS;My Demo Corp\Corporate Operations;My Demo Corp;OPS;2;MORGANE;BROOKSR;OU=Corporate,OU=Employees,DC=mydemocorp,DC=example,DC=com
+Technology & Engineering;MDC-TEC;My Demo Corp\Technology & Engineering;My Demo Corp;TEC;2;CHENM;PATELS;OU=Technology,OU=Employees,DC=mydemocorp,DC=example,DC=com
+Sales & Customer Success;MDC-SCS;My Demo Corp\Sales & Customer Success;My Demo Corp;SCS;2;ROSSA;KELLYL;OU=Sales,OU=Employees,DC=mydemocorp,DC=example,DC=com
+Executive Management;MDC-OPS-EXE;My Demo Corp\Corporate Operations\Executive Management;My Demo Corp\Corporate Operations;EXE;3;CARTERJ;MORGANE;OU=Executive,OU=Corporate,OU=Employees,DC=mydemocorp,DC=example,DC=com
+Human Resources;MDC-OPS-HRS;My Demo Corp\Corporate Operations\Human Resources;My Demo Corp\Corporate Operations;HRS;3;HAYESD;COLLINSN;OU=HR,OU=Corporate,OU=Employees,DC=mydemocorp,DC=example,DC=com
+Finance & Accounting;MDC-OPS-FIN;My Demo Corp\Corporate Operations\Finance & Accounting;My Demo Corp\Corporate Operations;FIN;3;BROOKSR;WARRENK;OU=Finance,OU=Corporate,OU=Employees,DC=mydemocorp,DC=example,DC=com
+Software Engineering;MDC-TEC-ENG;My Demo Corp\Technology & Engineering\Software Engineering;My Demo Corp\Technology & Engineering;ENG;3;PATELS;FISCHERL;OU=Engineering,OU=Technology,OU=Employees,DC=mydemocorp,DC=example,DC=com
+IT Infrastructure & Security;MDC-TEC-ITS;My Demo Corp\Technology & Engineering\IT Infrastructure & Security;My Demo Corp\Technology & Engineering;ITS;3;NOVAKV;REIDB;OU=IT,OU=Technology,OU=Employees,DC=mydemocorp,DC=example,DC=com
+Product & Design;MDC-TEC-PRD;My Demo Corp\Technology & Engineering\Product & Design;My Demo Corp\Technology & Engineering;PRD;3;BENNETTC;SILVAM;OU=Product,OU=Technology,OU=Employees,DC=mydemocorp,DC=example,DC=com
+Enterprise Sales;MDC-SCS-SAL;My Demo Corp\Sales & Customer Success\Enterprise Sales;My Demo Corp\Sales & Customer Success;SAL;3;KELLYL;WEBERH;OU=EnterpriseSales,OU=Sales,OU=Employees,DC=mydemocorp,DC=example,DC=com
+Customer Support & Success;MDC-SCS-SUP;My Demo Corp\Sales & Customer Success\Customer Support & Success;My Demo Corp\Sales & Customer Success;SUP;3;TURNERG;HANSENP;OU=Support,OU=Sales,OU=Employees,DC=mydemocorp,DC=example,DC=com

@@ -1,0 +1,876 @@
+{
+  "info": {
+    "_postman_id": "d8e91042-7b2a-4c19-9a14-019283746511",
+    "name": "My Demo Corp — HR System PoC (OData v4 & REST API)",
+    "description": "Complete Postman collection for testing the My Demo Corp HR System PoC (v1.1).\n\n### Configuration Parameters (Collection Variables)\n- `baseUrl`: Base URL of the HR PoC application without trailing slash (default: `http://localhost/hr` when deployed to IIS, or `http://localhost:5080` for local `dotnet run`).\n- `employeeId`, `departmentId`, `costCenterId`, `locationId`: Sample IDs for single-record `GET(key)` requests.\n- `createdEmployeeId`, `createdDepartmentId`, `createdCostCenterId`, `createdLocationId`: Automatically populated when you execute the `POST` requests so you can immediately run `PATCH`, `PUT`, and `DELETE` in sequence.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost/hr",
+      "type": "string"
+    },
+    {
+      "key": "employeeId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "departmentId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "costCenterId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "locationId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "createdEmployeeId",
+      "value": "51",
+      "type": "string"
+    },
+    {
+      "key": "createdDepartmentId",
+      "value": "13",
+      "type": "string"
+    },
+    {
+      "key": "createdCostCenterId",
+      "value": "13",
+      "type": "string"
+    },
+    {
+      "key": "createdLocationId",
+      "value": "9",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. OData v4 — Service & Metadata",
+      "item": [
+        {
+          "name": "Get OData Service Document",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata"]
+            },
+            "description": "Returns the OData v4 Service Document listing all exposed EntitySets (Employees, Departments, CostCenters, Locations)."
+          }
+        },
+        {
+          "name": "Get OData CSDL $metadata (XML)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/xml"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/$metadata",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "$metadata"]
+            },
+            "description": "Returns the OData v4 CSDL XML schema used by IDM OData connectors to discover entities, keys, properties, and navigation properties."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. OData v4 — Employees (Queries & Full CRUD)",
+      "item": [
+        {
+          "name": "List Employees ($top, $skip, $count)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Employees?$top=25&$skip=0&$count=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Employees"],
+              "query": [
+                {
+                  "key": "$top",
+                  "value": "25"
+                },
+                {
+                  "key": "$skip",
+                  "value": "0"
+                },
+                {
+                  "key": "$count",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Paginated OData query returning Employees and total record count (`@odata.count`). Maximum `$top` is 5000."
+          }
+        },
+        {
+          "name": "Filter Active Employees ($filter, $select, $orderby)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Employees?$filter=EmploymentStatus eq 'Active'&$select=Id,Username,PersonnelNumber,FirstName,LastName,Email,JobTitle,EmploymentStatus,HireDate,DepartmentStructuredName&$orderby=LastName asc&$top=25&$count=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Employees"],
+              "query": [
+                {
+                  "key": "$filter",
+                  "value": "EmploymentStatus eq 'Active'"
+                },
+                {
+                  "key": "$select",
+                  "value": "Id,Username,PersonnelNumber,FirstName,LastName,Email,JobTitle,EmploymentStatus,HireDate,DepartmentStructuredName"
+                },
+                {
+                  "key": "$orderby",
+                  "value": "LastName asc"
+                },
+                {
+                  "key": "$top",
+                  "value": "25"
+                },
+                {
+                  "key": "$count",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter Terminated Employees with Expanded Relations ($expand)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Employees?$filter=EmploymentStatus eq 'Terminated'&$expand=Department,CostCenter,Location&$top=20&$count=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Employees"],
+              "query": [
+                {
+                  "key": "$filter",
+                  "value": "EmploymentStatus eq 'Terminated'"
+                },
+                {
+                  "key": "$expand",
+                  "value": "Department,CostCenter,Location"
+                },
+                {
+                  "key": "$top",
+                  "value": "20"
+                },
+                {
+                  "key": "$count",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delta Sync — Employees Modified Since Timestamp ($filter UpdatedAt)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Employees?$filter=UpdatedAt gt 2026-01-01T00:00:00Z&$orderby=UpdatedAt desc&$top=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Employees"],
+              "query": [
+                {
+                  "key": "$filter",
+                  "value": "UpdatedAt gt 2026-01-01T00:00:00Z"
+                },
+                {
+                  "key": "$orderby",
+                  "value": "UpdatedAt desc"
+                },
+                {
+                  "key": "$top",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Useful for IDM delta synchronization: fetches employees modified after a given UTC timestamp."
+          }
+        },
+        {
+          "name": "Get Employee by Key with $expand",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Employees({{employeeId}})?$expand=Department,CostCenter,Location",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Employees({{employeeId}})"],
+              "query": [
+                {
+                  "key": "$expand",
+                  "value": "Department,CostCenter,Location"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Employee (POST)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json && json.Id) {",
+                  "        pm.collectionVariables.set('createdEmployeeId', String(json.Id));",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Username\": \"POSTMAN1\",\n  \"PersonnelNumber\": \"10099\",\n  \"FirstName\": \"Alex\",\n  \"LastName\": \"Mercer\",\n  \"Initials\": \"AM\",\n  \"Email\": \"alex.mercer@mydemocorp.com\",\n  \"JobTitle\": \"Identity & Access Engineer\",\n  \"EmploymentStatus\": \"Active\",\n  \"HireDate\": \"2026-02-01\",\n  \"Phone\": \"+49-30-5550-199\",\n  \"City\": \"Berlin\",\n  \"Street\": \"Friedrichstrasse 123\",\n  \"ZipCode\": \"10117\",\n  \"DepartmentStructuredName\": \"My Demo Corp\\\\Technology & Engineering\\\\IT Infrastructure & Security\",\n  \"CostCenterStructuredName\": \"20\\\\20200\",\n  \"LocationStructuredName\": \"DE - Berlin - Friedrichstrasse 123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/odata/Employees",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Employees"]
+            },
+            "description": "Creates a new Employee via OData v4. Note that you can pass either `DepartmentId`/`CostCenterId`/`LocationId` OR `DepartmentStructuredName`/`CostCenterStructuredName`/`LocationStructuredName` — the server automatically resolves and synchronizes the paired fields."
+          }
+        },
+        {
+          "name": "Partial Update Employee — Transfer / Terminate (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "return=representation"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"JobTitle\": \"Senior IAM Architect\",\n  \"EmploymentStatus\": \"Terminated\",\n  \"DepartmentStructuredName\": \"My Demo Corp\\\\Technology & Engineering\\\\Software Engineering\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/odata/Employees({{createdEmployeeId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Employees({{createdEmployeeId}})"]
+            },
+            "description": "Applies a partial OData `Delta<Employee>` update. Setting `EmploymentStatus` to `Terminated` automatically sets `TerminationDate` to today (UTC) if not explicitly provided."
+          }
+        },
+        {
+          "name": "Full Replace Employee (PUT)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "return=representation"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Id\": {{createdEmployeeId}},\n  \"Username\": \"POSTMAN1\",\n  \"PersonnelNumber\": \"10099\",\n  \"FirstName\": \"Alex\",\n  \"LastName\": \"Mercer\",\n  \"Initials\": \"AM\",\n  \"Email\": \"alex.mercer@mydemocorp.com\",\n  \"JobTitle\": \"Principal Identity Architect\",\n  \"EmploymentStatus\": \"Active\",\n  \"HireDate\": \"2026-02-01\",\n  \"TerminationDate\": null,\n  \"Phone\": \"+49-30-5550-199\",\n  \"Fax\": \"+49-30-5550-101\",\n  \"City\": \"Berlin\",\n  \"Street\": \"Friedrichstrasse 123\",\n  \"ZipCode\": \"10117\",\n  \"DepartmentStructuredName\": \"My Demo Corp\\\\Technology & Engineering\\\\IT Infrastructure & Security\",\n  \"CostCenterStructuredName\": \"20\\\\20200\",\n  \"LocationStructuredName\": \"DE - Berlin - Friedrichstrasse 123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/odata/Employees({{createdEmployeeId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Employees({{createdEmployeeId}})"]
+            }
+          }
+        },
+        {
+          "name": "Delete Employee (DELETE)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Employees({{createdEmployeeId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Employees({{createdEmployeeId}})"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. OData v4 — Departments (Queries & Full CRUD)",
+      "item": [
+        {
+          "name": "List All Departments ($orderby TreeLevel)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Departments?$orderby=TreeLevel asc,StructuredName asc&$count=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Departments"],
+              "query": [
+                {
+                  "key": "$orderby",
+                  "value": "TreeLevel asc,StructuredName asc"
+                },
+                {
+                  "key": "$count",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Department by Key ($expand ParentDepartment)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Departments({{departmentId}})?$expand=ParentDepartment",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Departments({{departmentId}})"],
+              "query": [
+                {
+                  "key": "$expand",
+                  "value": "ParentDepartment"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Department (POST)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json && json.Id) {",
+                  "        pm.collectionVariables.set('createdDepartmentId', String(json.Id));",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Name\": \"Identity Security\",\n  \"ShortName\": \"MDC-TEC-IAM\",\n  \"ParentStructuredName\": \"My Demo Corp\\\\Technology & Engineering\",\n  \"FunctionalShortcut\": \"IAM\",\n  \"ManagerUsername\": \"NOVAKV\",\n  \"AdContainerForNewHires\": \"OU=IAM,OU=Technology,OU=Employees,DC=mydemocorp,DC=example,DC=com\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/odata/Departments",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Departments"]
+            }
+          }
+        },
+        {
+          "name": "Partial Update Department (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "return=representation"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"DeputyManagerUsername\": \"REIDB\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/odata/Departments({{createdDepartmentId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Departments({{createdDepartmentId}})"]
+            }
+          }
+        },
+        {
+          "name": "Delete Department (DELETE)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Departments({{createdDepartmentId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Departments({{createdDepartmentId}})"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. OData v4 — CostCenters (Queries & Full CRUD)",
+      "item": [
+        {
+          "name": "List All CostCenters ($count)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/CostCenters?$orderby=StructuredName asc&$count=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "CostCenters"],
+              "query": [
+                {
+                  "key": "$orderby",
+                  "value": "StructuredName asc"
+                },
+                {
+                  "key": "$count",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get CostCenter by Key ($expand ParentCostCenter)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/CostCenters({{costCenterId}})?$expand=ParentCostCenter",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "CostCenters({{costCenterId}})"],
+              "query": [
+                {
+                  "key": "$expand",
+                  "value": "ParentCostCenter"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create CostCenter (POST)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json && json.Id) {",
+                  "        pm.collectionVariables.set('createdCostCenterId', String(json.Id));",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Code\": \"20200900\",\n  \"ShortName\": \"Identity & Access Management Lab\",\n  \"ParentStructuredName\": \"20\\\\20200\",\n  \"CompanyMainStructure\": \"TEC\",\n  \"CompanyCountryStructure\": \"DE\",\n  \"ManagerUsername\": \"NOVAKV\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/odata/CostCenters",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "CostCenters"]
+            }
+          }
+        },
+        {
+          "name": "Partial Update CostCenter (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "return=representation"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ShortName\": \"Global Identity & Security Lab\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/odata/CostCenters({{createdCostCenterId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "CostCenters({{createdCostCenterId}})"]
+            }
+          }
+        },
+        {
+          "name": "Delete CostCenter (DELETE)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/odata/CostCenters({{createdCostCenterId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "CostCenters({{createdCostCenterId}})"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. OData v4 — Locations (Queries & Full CRUD)",
+      "item": [
+        {
+          "name": "List Locations ($filter by Country)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Locations?$filter=CountryShortcut eq 'DE'&$orderby=City asc&$count=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Locations"],
+              "query": [
+                {
+                  "key": "$filter",
+                  "value": "CountryShortcut eq 'DE'"
+                },
+                {
+                  "key": "$orderby",
+                  "value": "City asc"
+                },
+                {
+                  "key": "$count",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Location by Key",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Locations({{locationId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Locations({{locationId}})"]
+            }
+          }
+        },
+        {
+          "name": "Create Location (POST)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json && json.Id) {",
+                  "        pm.collectionVariables.set('createdLocationId', String(json.Id));",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"CountryShortcut\": \"DE\",\n  \"City\": \"Frankfurt\",\n  \"ZipCode\": \"60311\",\n  \"Street\": \"Neue Mainzer Strasse 52\",\n  \"Name\": \"DE - Frankfurt - Neue Mainzer Strasse 52\",\n  \"StructuredName\": \"DE - Frankfurt - Neue Mainzer Strasse 52\",\n  \"Description\": \"Neue Mainzer Strasse 52, 60311 Frankfurt, Germany\",\n  \"Phone\": \"+49-69-5550-300\",\n  \"ManagerUsername\": \"WEBERH\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/odata/Locations",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Locations"]
+            }
+          }
+        },
+        {
+          "name": "Partial Update Location (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Prefer",
+                "value": "return=representation"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Phone\": \"+49-69-5550-399\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/odata/Locations({{createdLocationId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Locations({{createdLocationId}})"]
+            }
+          }
+        },
+        {
+          "name": "Delete Location (DELETE)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/odata/Locations({{createdLocationId}})",
+              "host": ["{{baseUrl}}"],
+              "path": ["odata", "Locations({{createdLocationId}})"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Web UI REST API (/api)",
+      "item": [
+        {
+          "name": "Dashboard Stats & Recent Changes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dashboard", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Search & Paginate Employees",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/employees?page=1&pageSize=25&sortBy=lastName&sortDir=asc",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "employees"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "25"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "lastName"
+                },
+                {
+                  "key": "sortDir",
+                  "value": "asc"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Suggest Next Identifiers (Onboarding Helper)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/employees/next-identifiers?firstName=John&lastName=Doe",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "employees", "next-identifiers"],
+              "query": [
+                {
+                  "key": "firstName",
+                  "value": "John"
+                },
+                {
+                  "key": "lastName",
+                  "value": "Doe"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reset Database to CSV Baseline (POST reseed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/reseed",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dashboard", "reseed"]
+            },
+            "description": "Resets the SQL Server database back to the baseline CSV files (`MDC-HR-Data.csv`, `MDC-Department.csv`, `MDC-Costcenter.csv`, `MDC-Locations.csv`)."
+          }
+        }
+      ]
+    }
+  ]
+}

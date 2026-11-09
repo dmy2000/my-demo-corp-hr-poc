@@ -1,0 +1,13 @@
+Cost center;Costcenter structured name;Short name;Parent cost center structured name;Company main structure;company country structure;Tree level;Manager
+10;10;Corporate Operations;;OPS;Global;1;MORGANE
+10100;10\10100;Executive & Strategy;10;OPS;US;2;CARTERJ
+10200;10\10200;Human Resources;10;OPS;Global;2;HAYESD
+10300;10\10300;Finance & Accounting;10;OPS;Global;2;BROOKSR
+20;20;Technology & Engineering;;TEC;Global;1;CHENM
+20100;20\20100;Software Engineering;20;TEC;US;2;PATELS
+20100100;20\20100\20100100;Core Platform R&D;20\20100;TEC;DE;3;FISCHERL
+20200;20\20200;IT Infrastructure & Security;20;TEC;Global;2;NOVAKV
+20300;20\20300;Product & Design;20;TEC;UK;2;BENNETTC
+30;30;Sales & Customer Success;;SCS;Global;1;ROSSA
+30100;30\30100;Enterprise Sales;30;SCS;Global;2;KELLYL
+30200;30\30200;Customer Support & Success;30;SCS;Global;2;TURNERG

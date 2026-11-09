@@ -1,0 +1,9 @@
+Location;Location structured name;Description;Country shortcut;Zip code;City;Street;Phone;Fax;Manager;Assistant manager
+US - New York - 350 Fifth Avenue;US - New York - 350 Fifth Avenue;350 Fifth Avenue, Suite 4200, New York, NY 10118, USA;US;10118;New York;350 Fifth Avenue;+1-212-555-0100;+1-212-555-0101;CARTERJ;MORGANE
+US - San Francisco - 500 Howard Street;US - San Francisco - 500 Howard Street;500 Howard Street, Floor 8, San Francisco, CA 94105, USA;US;94105;San Francisco;500 Howard Street;+1-415-555-0120;+1-415-555-0121;CHENM;PATELS
+US - Austin - 600 Congress Avenue;US - Austin - 600 Congress Avenue;600 Congress Avenue, Suite 1400, Austin, TX 78701, USA;US;78701;Austin;600 Congress Avenue;+1-512-555-0140;+1-512-555-0141;NOVAKV;REIDB
+UK - London - 30 St Mary Axe;UK - London - 30 St Mary Axe;30 St Mary Axe, London EC3A 8EP, United Kingdom;UK;EC3A 8EP;London;30 St Mary Axe;+44-20-7946-0100;+44-20-7946-0101;ROSSA;BENNETTC
+DE - Berlin - Friedrichstrasse 123;DE - Berlin - Friedrichstrasse 123;Friedrichstrasse 123, 10117 Berlin, Germany;DE;10117;Berlin;Friedrichstrasse 123;+49-30-5550-100;+49-30-5550-101;FISCHERL;WEBERH
+DE - Munich - Leopoldstrasse 80;DE - Munich - Leopoldstrasse 80;Leopoldstrasse 80, 80802 Munich, Germany;DE;80802;Munich;Leopoldstrasse 80;+49-89-5550-200;+49-89-5550-201;WEBERH;BECKERM
+CA - Toronto - 100 King Street West;CA - Toronto - 100 King Street West;100 King Street West, Suite 5600, Toronto, ON M5X 1C9, Canada;CA;M5X 1C9;Toronto;100 King Street West;+1-416-555-0160;+1-416-555-0161;TURNERG;MITCHELJ
+AU - Sydney - 200 George Street;AU - Sydney - 200 George Street;200 George Street, Level 18, Sydney NSW 2000, Australia;AU;2000;Sydney;200 George Street;+61-2-5550-1800;+61-2-5550-1801;KELLYL;PARKERL

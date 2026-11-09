@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Demo Corp — HR System (PoC)</title>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="brand-logo">HR</div>
+      <div>
+        <h1>My Demo Corp — HR System <span class="badge-poc">PoC v1.1</span></h1>
+        <p class="subtitle">Authoritative HR Data Source &bull; Windows Server / SQL Server / IIS &bull; OData v4 Enabled</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <a href="odata/$metadata" target="_blank" class="btn btn-outline btn-sm" title="Open OData v4 CSDL Metadata XML" style="text-decoration:none;">
+        OData $metadata
+      </a>
+      <span id="dbProviderBadge" class="db-badge" title="Active Database Provider">DB: Loading...</span>
+      <button id="btnReseed" class="btn btn-outline btn-sm" title="Reset database to original CSV files">
+        &#8635; Reset CSV Data
+      </button>
+      <button id="btnPrimaryAdd" class="btn btn-primary">
+        + New Employee
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Summary KPI Strip -->
+    <section class="kpi-grid" id="kpiStrip">
+      <div class="kpi-card kpi-clickable" data-tab="employees" data-status="">
+        <div class="kpi-label">Total Employees</div>
+        <div class="kpi-value" id="statTotalEmployees">—</div>
+        <div class="kpi-meta">
+          <span class="dot dot-active"></span> <span id="statActiveEmployees">0</span> Active &bull;
+          <span class="dot dot-leave"></span> <span id="statOnLeaveEmployees">0</span> Leave &bull;
+          <span class="dot dot-term"></span> <span id="statTerminatedEmployees">0</span> Terminated
+        </div>
+      </div>
+      <div class="kpi-card kpi-clickable" data-tab="departments">
+        <div class="kpi-label">Departments</div>
+        <div class="kpi-value" id="statTotalDepartments">—</div>
+        <div class="kpi-meta">Organizational hierarchy (Levels 1–3)</div>
+      </div>
+      <div class="kpi-card kpi-clickable" data-tab="costcenters">
+        <div class="kpi-label">Cost Centers</div>
+        <div class="kpi-value" id="statTotalCostCenters">—</div>
+        <div class="kpi-meta">Financial structure (Levels 1–3)</div>
+      </div>
+      <div class="kpi-card kpi-clickable" data-tab="locations">
+        <div class="kpi-label">Locations</div>
+        <div class="kpi-value" id="statTotalLocations">—</div>
+        <div class="kpi-meta"><span id="statTotalCountries">0</span> Countries worldwide</div>
+      </div>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs-nav">
+      <button class="tab-btn active" data-tab="employees">
+        Employees <span class="tab-count" id="tabCountEmployees">0</span>
+      </button>
+      <button class="tab-btn" data-tab="departments">
+        Departments <span class="tab-count" id="tabCountDepartments">0</span>
+      </button>
+      <button class="tab-btn" data-tab="costcenters">
+        Cost Centers <span class="tab-count" id="tabCountCostCenters">0</span>
+      </button>
+      <button class="tab-btn" data-tab="locations">
+        Locations <span class="tab-count" id="tabCountLocations">0</span>
+      </button>
+      <button class="tab-btn" data-tab="recent">
+        Recent Updates
+      </button>
+    </nav>
+
+    <!-- TAB 1: EMPLOYEES -->
+    <section id="tab-employees" class="tab-panel active">
+      <div class="filter-bar">
+        <div class="filter-group filter-search">
+          <label for="empSearch">Search</label>
+          <input type="text" id="empSearch" placeholder="Name, Username, Personnel #, Job Title, Email, City..." />
+        </div>
+        <div class="filter-group">
+          <label for="empStatusFilter">Status</label>
+          <select id="empStatusFilter">
+            <option value="">All Statuses</option>
+            <option value="Active">Active</option>
+            <option value="OnLeave">On Leave</option>
+            <option value="Terminated">Terminated</option>
+            <option value="Suspended">Suspended</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="empDeptFilter">Department</label>
+          <select id="empDeptFilter">
+            <option value="">All Departments</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="empCcFilter">Cost Center</label>
+          <select id="empCcFilter">
+            <option value="">All Cost Centers</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="empLocFilter">Location</label>
+          <select id="empLocFilter">
+            <option value="">All Locations</option>
+          </select>
+        </div>
+        <div class="filter-group filter-small">
+          <label for="empCountryFilter">Country</label>
+          <select id="empCountryFilter">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div class="filter-actions">
+          <button id="btnClearEmpFilters" class="btn btn-outline btn-sm">Clear</button>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div id="empResultSummary" class="result-summary">Loading employees...</div>
+          <div class="toolbar-right">
+            <label for="empSortBy" class="inline-label">Sort by:</label>
+            <select id="empSortBy" class="select-sm">
+              <option value="lastName">Last Name</option>
+              <option value="username">Username</option>
+              <option value="personnelNumber">Personnel #</option>
+              <option value="hireDate">Hire Date</option>
+              <option value="department">Department</option>
+              <option value="costCenter">Cost Center</option>
+              <option value="location">Location</option>
+              <option value="updatedAt">Last Updated</option>
+            </select>
+            <select id="empSortDir" class="select-sm">
+              <option value="asc">ASC</option>
+              <option value="desc">DESC</option>
+            </select>
+            <select id="empPageSize" class="select-sm">
+              <option value="25">25 / page</option>
+              <option value="50">50 / page</option>
+              <option value="100">100 / page</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Personnel #</th>
+                <th>Username</th>
+                <th>Full Name</th>
+                <th>Job Title</th>
+                <th>Status</th>
+                <th>Hire Date</th>
+                <th>Department</th>
+                <th>Cost Center</th>
+                <th>Location</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="empTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="pagination-bar">
+          <div id="empPageInfo" class="page-info">Page 1 of 1</div>
+          <div class="pagination-controls">
+            <button id="btnEmpFirst" class="btn btn-outline btn-sm">&laquo; First</button>
+            <button id="btnEmpPrev" class="btn btn-outline btn-sm">&lsaquo; Prev</button>
+            <button id="btnEmpNext" class="btn btn-outline btn-sm">Next &rsaquo;</button>
+            <button id="btnEmpLast" class="btn btn-outline btn-sm">Last &raquo;</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: DEPARTMENTS -->
+    <section id="tab-departments" class="tab-panel">
+      <div class="filter-bar">
+        <div class="filter-group filter-search">
+          <label for="deptSearch">Search Departments</label>
+          <input type="text" id="deptSearch" placeholder="Name, Short Name, Structured Path, Manager Username..." />
+        </div>
+        <div class="filter-actions">
+          <div class="view-toggle">
+            <button id="btnDeptTableView" class="btn btn-sm active">Table View</button>
+            <button id="btnDeptTreeView" class="btn btn-sm">Hierarchy Tree</button>
+          </div>
+          <button id="btnAddDepartment" class="btn btn-primary btn-sm">+ New Department</button>
+        </div>
+      </div>
+
+      <div id="deptTableContainer" class="table-card">
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Department</th>
+                <th>Short Name</th>
+                <th>Structured Name</th>
+                <th>Level</th>
+                <th>Manager</th>
+                <th>Deputy</th>
+                <th>Employees</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="deptTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="deptTreeContainer" class="tree-card hidden"></div>
+    </section>
+
+    <!-- TAB 3: COST CENTERS -->
+    <section id="tab-costcenters" class="tab-panel">
+      <div class="filter-bar">
+        <div class="filter-group filter-search">
+          <label for="ccSearch">Search Cost Centers</label>
+          <input type="text" id="ccSearch" placeholder="Code, Structured Name, Short Name, Main Structure, Country, Manager..." />
+        </div>
+        <div class="filter-actions">
+          <div class="view-toggle">
+            <button id="btnCcTableView" class="btn btn-sm active">Table View</button>
+            <button id="btnCcTreeView" class="btn btn-sm">Hierarchy Tree</button>
+          </div>
+          <button id="btnAddCostCenter" class="btn btn-primary btn-sm">+ New Cost Center</button>
+        </div>
+      </div>
+
+      <div id="ccTableContainer" class="table-card">
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Cost Center</th>
+                <th>Structured Name</th>
+                <th>Short Name</th>
+                <th>Main Structure</th>
+                <th>Country</th>
+                <th>Level</th>
+                <th>Manager</th>
+                <th>Employees</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ccTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="ccTreeContainer" class="tree-card hidden"></div>
+    </section>
+
+    <!-- TAB 4: LOCATIONS -->
+    <section id="tab-locations" class="tab-panel">
+      <div class="filter-bar">
+        <div class="filter-group filter-search">
+          <label for="locSearch">Search Locations</label>
+          <input type="text" id="locSearch" placeholder="Location Name, City, Street, Zip, Manager..." />
+        </div>
+        <div class="filter-group filter-small">
+          <label for="locCountryFilter">Country</label>
+          <select id="locCountryFilter">
+            <option value="">All Countries</option>
+          </select>
+        </div>
+        <div class="filter-actions">
+          <button id="btnAddLocation" class="btn btn-primary btn-sm">+ New Location</button>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Country</th>
+                <th>City</th>
+                <th>Street &amp; Zip</th>
+                <th>Structured Name</th>
+                <th>Phone / Fax</th>
+                <th>Manager / Assistant</th>
+                <th>Employees</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="locTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: RECENT UPDATES -->
+    <section id="tab-recent" class="tab-panel">
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="result-summary">Recently Created or Modified Employees (Ordered by UpdatedAt UTC)</div>
+          <button id="btnRefreshRecent" class="btn btn-outline btn-sm">&#8635; Refresh</button>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Updated (UTC)</th>
+                <th>Personnel #</th>
+                <th>Username</th>
+                <th>Full Name</th>
+                <th>Job Title</th>
+                <th>Status</th>
+                <th>Department</th>
+                <th class="text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="recentTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL: EMPLOYEE CREATE / EDIT -->
+  <div id="employeeModal" class="modal-backdrop hidden">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h2 id="empModalTitle">Edit Employee</h2>
+        <button class="modal-close" data-close="employeeModal">&times;</button>
+      </div>
+      <form id="employeeForm" class="modal-body">
+        <input type="hidden" id="empId" />
+
+        <div id="empLeadershipBanner" class="info-banner hidden"></div>
+
+        <fieldset class="form-section">
+          <legend>1. Identity &amp; Employment Details</legend>
+          <div class="form-grid-4">
+            <div class="form-field">
+              <label for="empFirstName">First Name *</label>
+              <input type="text" id="empFirstName" required />
+            </div>
+            <div class="form-field">
+              <label for="empLastName">Last Name *</label>
+              <input type="text" id="empLastName" required />
+            </div>
+            <div class="form-field">
+              <label for="empInitials">Initials</label>
+              <input type="text" id="empInitials" maxlength="16" />
+            </div>
+            <div class="form-field">
+              <label for="empStatus">Employment Status *</label>
+              <select id="empStatus" required>
+                <option value="Active">Active</option>
+                <option value="OnLeave">On Leave</option>
+                <option value="Terminated">Terminated</option>
+                <option value="Suspended">Suspended</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-grid-4">
+            <div class="form-field">
+              <label for="empPersonnelNumber">Personnel Number *</label>
+              <input type="text" id="empPersonnelNumber" required />
+            </div>
+            <div class="form-field">
+              <label for="empUsername">Username (sAMAccountName) *</label>
+              <div class="input-with-btn">
+                <input type="text" id="empUsername" required />
+                <button type="button" id="btnGenerateIds" class="btn btn-outline btn-xs" title="Auto-generate next Personnel # and Username">Auto</button>
+              </div>
+            </div>
+            <div class="form-field">
+              <label for="empHireDate">Hire Date *</label>
+              <input type="date" id="empHireDate" required />
+            </div>
+            <div class="form-field">
+              <label for="empTerminationDate">Termination Date</label>
+              <input type="date" id="empTerminationDate" />
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label for="empJobTitle">Job Title</label>
+              <input type="text" id="empJobTitle" placeholder="e.g. Senior Software Engineer, HR Business Partner" />
+            </div>
+            <div class="form-field">
+              <label for="empEmail">Corporate Email</label>
+              <input type="email" id="empEmail" placeholder="firstname.lastname@mydemocorp.com" />
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>2. Organizational Assignment (MDC Structure)</legend>
+          <div class="form-grid-1">
+            <div class="form-field">
+              <label for="empDepartmentId">Department</label>
+              <select id="empDepartmentId">
+                <option value="">— None —</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="empCostCenterId">Cost Center</label>
+              <select id="empCostCenterId">
+                <option value="">— None —</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="empLocationId">Location</label>
+              <div class="input-with-btn">
+                <select id="empLocationId">
+                  <option value="">— None —</option>
+                </select>
+                <button type="button" id="btnCopyLocAddress" class="btn btn-outline btn-xs" title="Copy Street, City, Zip, and Fax from selected Location">Copy Address</button>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>3. Contact &amp; Work Address</legend>
+          <div class="form-grid-3">
+            <div class="form-field">
+              <label for="empPhone">Phone</label>
+              <input type="text" id="empPhone" />
+            </div>
+            <div class="form-field">
+              <label for="empFax">Fax</label>
+              <input type="text" id="empFax" />
+            </div>
+            <div class="form-field">
+              <label for="empZipCode">Zip Code</label>
+              <input type="text" id="empZipCode" />
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-field">
+              <label for="empCity">City</label>
+              <input type="text" id="empCity" />
+            </div>
+            <div class="form-field">
+              <label for="empStreet">Street Address</label>
+              <input type="text" id="empStreet" />
+            </div>
+          </div>
+        </fieldset>
+
+        <div id="empMetaFooter" class="meta-footer"></div>
+
+        <div class="modal-footer">
+          <button type="button" id="btnDeleteEmployee" class="btn btn-danger hidden">Delete Employee</button>
+          <div class="footer-right">
+            <button type="button" class="btn btn-outline" data-close="employeeModal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: DEPARTMENT CREATE / EDIT -->
+  <div id="departmentModal" class="modal-backdrop hidden">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2 id="deptModalTitle">Department</h2>
+        <button class="modal-close" data-close="departmentModal">&times;</button>
+      </div>
+      <form id="departmentForm" class="modal-body">
+        <input type="hidden" id="deptId" />
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="deptName">Department Name *</label>
+            <input type="text" id="deptName" required placeholder="e.g. Software Engineering" />
+          </div>
+          <div class="form-field">
+            <label for="deptShortName">Short Name</label>
+            <input type="text" id="deptShortName" placeholder="e.g. MDC-TEC-ENG" />
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="deptParentId">Parent Department</label>
+          <select id="deptParentId">
+            <option value="">— Root (My Demo Corp) —</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="deptStructuredName">Structured Name (auto-built if left blank)</label>
+          <input type="text" id="deptStructuredName" placeholder="My Demo Corp\Technology & Engineering\..." />
+        </div>
+        <div class="form-grid-3">
+          <div class="form-field">
+            <label for="deptFunctionalShortcut">Functional Shortcut</label>
+            <input type="text" id="deptFunctionalShortcut" placeholder="e.g. ENG, ITS, SAL" />
+          </div>
+          <div class="form-field">
+            <label for="deptManager">Manager Username</label>
+            <input type="text" id="deptManager" list="employeeUsernamesList" placeholder="e.g. PATELS" />
+          </div>
+          <div class="form-field">
+            <label for="deptDeputy">Deputy Manager Username</label>
+            <input type="text" id="deptDeputy" list="employeeUsernamesList" placeholder="e.g. FISCHERL" />
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="deptAdContainer">AD Container for New Hires</label>
+          <input type="text" id="deptAdContainer" placeholder="OU=Employees,DC=mydemocorp,DC=example,DC=com" />
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="btnDeleteDepartment" class="btn btn-danger hidden">Delete</button>
+          <div class="footer-right">
+            <button type="button" class="btn btn-outline" data-close="departmentModal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Department</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: COST CENTER CREATE / EDIT -->
+  <div id="costCenterModal" class="modal-backdrop hidden">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2 id="ccModalTitle">Cost Center</h2>
+        <button class="modal-close" data-close="costCenterModal">&times;</button>
+      </div>
+      <form id="costCenterForm" class="modal-body">
+        <input type="hidden" id="ccId" />
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="ccCode">Cost Center Code *</label>
+            <input type="text" id="ccCode" required placeholder="e.g. 20100050" />
+          </div>
+          <div class="form-field">
+            <label for="ccShortName">Short Name</label>
+            <input type="text" id="ccShortName" placeholder="e.g. A&F - Accounting - US" />
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="ccParentId">Parent Cost Center</label>
+          <select id="ccParentId">
+            <option value="">— Top Level —</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="ccStructuredName">Structured Name (auto-built if left blank)</label>
+          <input type="text" id="ccStructuredName" placeholder="20\20100\20100050" />
+        </div>
+        <div class="form-grid-3">
+          <div class="form-field">
+            <label for="ccMainStruct">Company Main Structure</label>
+            <input type="text" id="ccMainStruct" placeholder="e.g. A&F, S&M, R&D, PRD" />
+          </div>
+          <div class="form-field">
+            <label for="ccCountryStruct">Country Structure</label>
+            <input type="text" id="ccCountryStruct" placeholder="e.g. US, DE, UK, global" />
+          </div>
+          <div class="form-field">
+            <label for="ccManager">Manager Username</label>
+            <input type="text" id="ccManager" list="employeeUsernamesList" placeholder="e.g. GREENEK" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="btnDeleteCostCenter" class="btn btn-danger hidden">Delete</button>
+          <div class="footer-right">
+            <button type="button" class="btn btn-outline" data-close="costCenterModal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Cost Center</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: LOCATION CREATE / EDIT -->
+  <div id="locationModal" class="modal-backdrop hidden">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2 id="locModalTitle">Location</h2>
+        <button class="modal-close" data-close="locationModal">&times;</button>
+      </div>
+      <form id="locationForm" class="modal-body">
+        <input type="hidden" id="locId" />
+        <div class="form-grid-3">
+          <div class="form-field">
+            <label for="locCountry">Country Shortcut *</label>
+            <input type="text" id="locCountry" required maxlength="8" placeholder="e.g. US, DE, UK" />
+          </div>
+          <div class="form-field">
+            <label for="locCity">City *</label>
+            <input type="text" id="locCity" required placeholder="e.g. Berlin" />
+          </div>
+          <div class="form-field">
+            <label for="locZip">Zip Code</label>
+            <input type="text" id="locZip" placeholder="e.g. 10999" />
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="locStreet">Street Address *</label>
+          <input type="text" id="locStreet" required placeholder="e.g. Ohlauer Str. 5-11" />
+        </div>
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="locName">Location Name (auto-built if blank)</label>
+            <input type="text" id="locName" placeholder="DE - Berlin - Ohlauer Str. 5-11" />
+          </div>
+          <div class="form-field">
+            <label for="locStructuredName">Structured Name (auto-built if blank)</label>
+            <input type="text" id="locStructuredName" placeholder="DE - Berlin - Ohlauer Str. 5-11" />
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="locDescription">Description</label>
+          <input type="text" id="locDescription" placeholder="Full postal description" />
+        </div>
+        <div class="form-grid-4">
+          <div class="form-field">
+            <label for="locPhone">Phone</label>
+            <input type="text" id="locPhone" />
+          </div>
+          <div class="form-field">
+            <label for="locFax">Fax</label>
+            <input type="text" id="locFax" />
+          </div>
+          <div class="form-field">
+            <label for="locManager">Manager Username</label>
+            <input type="text" id="locManager" list="employeeUsernamesList" />
+          </div>
+          <div class="form-field">
+            <label for="locAssistant">Assistant Manager</label>
+            <input type="text" id="locAssistant" list="employeeUsernamesList" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="btnDeleteLocation" class="btn btn-danger hidden">Delete</button>
+          <div class="footer-right">
+            <button type="button" class="btn btn-outline" data-close="locationModal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Location</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <datalist id="employeeUsernamesList"></datalist>
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
+
