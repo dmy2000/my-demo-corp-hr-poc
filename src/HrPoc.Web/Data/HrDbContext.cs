@@ -13,10 +13,17 @@ public class HrDbContext : DbContext
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<CostCenter> CostCenters => Set<CostCenter>();
     public DbSet<Location> Locations => Set<Location>();
+    public DbSet<InstallationConfig> InstallationConfigs => Set<InstallationConfig>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<InstallationConfig>(entity =>
+        {
+            entity.ToTable("InstallationConfig");
+            entity.HasKey(c => c.Id);
+        });
 
         modelBuilder.Entity<Employee>(entity =>
         {

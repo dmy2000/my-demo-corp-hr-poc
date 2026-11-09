@@ -82,29 +82,25 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\deploy\Install-HrPoc.ps1
 ```
 
-### What the Installer Does Step-by-Step:
+### What the Installer / Updater Does Step-by-Step:
 
 1. **Step 1 — Prerequisite Check**:
    - Verifies that IIS (`W3SVC`) and the `WebAdministration` PowerShell module are installed (offers one-click installation via `Install-WindowsFeature` / `Enable-WindowsOptionalFeature` if missing).
    - Verifies that `AspNetCoreModuleV2` (ASP.NET Core Hosting Bundle) is registered in IIS (offers automatic repair from package cache or download of the official Microsoft ASP.NET Core 8.0 Hosting Bundle).
    - Checks for compiled binaries in `./publish`. If not present, compiles a compact framework-dependent release (`dotnet publish -c Release -o .\publish`) using the local .NET 8 SDK (or downloads a portable .NET 8 SDK if needed).
-2. **Step 2 — SQL Server & IIS Configuration Prompts**:
-   - Prompts for the **SQL Server Hostname/IP** and optional **Instance Name**.
-   - Prompts for the **Administrator Authentication Method** used only during installation to create the database and application login:
-     - `[1]` Windows Account in UPN (`admin@corp.example.com`) or `DOMAIN\user` format (uses Win32 `LogonUser` impersonation, so it works even from a non-domain-joined machine)
-     - `[2]` SQL Server Admin Login (e.g., `sa`)
-     - `[3]` Current Windows Session (`whoami`)
-   - Prompts for the target database name (default: `HrPocDb`) and the **dedicated application SQL login** (default: `hr_app`) and password. The web application connects exclusively as `hr_app` (`db_owner` on `HrPocDb`), never as `sa`.
-   - Prompts for the IIS Site (default: `Default Web Site`), Virtual Application Subpath (default: `hr` -> `http://<server>/hr/`), and physical path (default: `C:\inetpub\wwwroot\hr`).
-3. **Step 3 — SQL Server Validation**:
-   - Tests the SQL connection, verifies `sysadmin` (or `dbcreator` + `securityadmin`) privileges, and checks whether SQL Server Mixed Mode Authentication is enabled (offers to enable Mixed Mode and restart the local SQL Server service automatically if needed).
-4. **Step 4 — Database Provisioning & IIS Deployment**:
-   - Creates `HrPocDb` and provisions the dedicated `hr_app` SQL login/user.
-   - Copies application binaries and `data/MDC-*.csv` files to `C:\inetpub\wwwroot\hr`.
-   - Generates `appsettings.Production.json` with the `hr_app` connection string.
-   - Creates/updates the `HrPocAppPool` (`No Managed Code` / `InProcess`) and the `/hr` IIS Web Application.
-5. **Step 5 — Smoke Test & Initial Seeding**:
-   - Calls `http://localhost/hr/api/dashboard/stats` (which automatically creates the database tables and seeds the CSV data on first request) and verifies `/hr/odata/$metadata`.
+2. **Step 2 & 3 — SQL Connection & Smart Mode Detection**:
+   - Prompts for the **SQL Server Hostname/IP**, optional **Instance Name**, **Administrator Authentication Method** (`WindowsUPN`, `SqlLogin`, or `CurrentWindows`), and **Target Database Name** (default: `HrPocDb`).
+   - Connects to SQL Server, verifies admin permissions, and checks if the database exists with the `dbo.InstallationConfig` table:
+     - **Update Mode (Existing Installation)**: Automatically loads existing IIS Site Name, Virtual Subpath, Physical Directory, Application Pool, Dedicated SQL User, and previous version. Confirms the update and proceeds immediately without asking redundant questions!
+     - **Fresh Install Mode**: Prompts for the dedicated SQL login (default: `hr_app`), password, IIS Site, Virtual Subpath (default: `hr`), and physical installation path.
+3. **Step 4 — Safe IIS Shutdown, Deployment & Settings Persistence**:
+   - Safely stops the IIS Application Pool and verifies that all file locks (e.g. `w3wp.exe` handles on `HrPoc.Web.dll`) are fully released before copying files.
+   - Copies updated application binaries.
+   - **Preserves existing CSV files**: If `data/` in the installation directory already contains CSV data (e.g., custom enterprise datasets), the installer leaves them untouched and does not overwrite them with distribution templates.
+   - Writes/updates `dbo.InstallationConfig` in the database with the deployed version and IIS parameters.
+   - Configures/verifies the IIS Application Pool (`No Managed Code`) and Web Application, then starts the pool and website.
+4. **Step 5 — Smoke Test & Health Verification**:
+   - Queries `http://localhost/hr/api/dashboard/stats` and verifies `/hr/odata/$metadata` to confirm the application and database are healthy.
 
 ---
 

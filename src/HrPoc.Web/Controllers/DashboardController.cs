@@ -57,6 +57,20 @@ public class DashboardController : ControllerBase
             })
             .ToListAsync(ct);
 
+        string? installedVersion = null;
+        try
+        {
+            installedVersion = await _db.InstallationConfigs
+                .AsNoTracking()
+                .OrderByDescending(c => c.Id)
+                .Select(c => c.Version)
+                .FirstOrDefaultAsync(ct);
+        }
+        catch
+        {
+            // Table might not exist yet on legacy un-updated databases
+        }
+
         return Ok(new
         {
             totalEmployees,
@@ -68,6 +82,7 @@ public class DashboardController : ControllerBase
             totalLocations,
             countries,
             recentEmployees,
+            installedVersion = installedVersion ?? "1.1.2",
             databaseProvider = "SqlServer",
             serverTimeUtc = DateTime.UtcNow
         });

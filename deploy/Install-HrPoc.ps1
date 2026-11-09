@@ -1,21 +1,24 @@
 <#
 .SYNOPSIS
-    Interactive & Automated Installer for My Demo Corp -- HR System PoC (v1.1)
+    Interactive & Automated Installer / Updater for My Demo Corp -- HR System PoC (v1.1)
     Target Platform: Windows Server / Windows 10/11 + IIS + Microsoft SQL Server
 
 .DESCRIPTION
     1. Checks prerequisites (Administrator rights, IIS Web-Server + Management Tools,
        ASP.NET Core 8.0 Hosting Bundle / AspNetCoreModuleV2, and application binaries)
        and offers to install or build any missing components automatically.
-    2. Prompts for IIS and SQL Server connection parameters:
-       - SQL Server host & optional instance name
-       - Admin credentials for DB creation:
-         * Current Windows User
-         * Windows Account in UPN (user@domain.com) or DOMAIN\user format
-         * SQL Server Login (e.g., sa)
-       - Dedicated SQL user for the HR PoC application (e.g., hr_app)
-    3. Validates SQL Server connectivity, permissions, and authentication mode.
-    4. Provisions the database & user, deploys the application to IIS, and runs a smoke test.
+    2. Collects SQL Server connection info (host, instance, admin authentication method,
+       and target database name).
+    3. Checks if the target database already exists and contains the InstallationConfig table:
+       - If YES: switches directly to UPDATE MODE. Displays existing configuration (IIS site,
+         virtual path, physical directory, app pool, SQL user) and prompts to proceed with the
+         update without asking unnecessary questions.
+       - If NO: prompts for the remaining parameters (dedicated SQL user, IIS website, virtual
+         subpath, physical path, app pool) for a fresh installation.
+    4. Safely stops the IIS Application Pool and verifies all file locks (e.g. w3wp.exe) are released.
+    5. Deploys updated application binaries while preserving any existing CSV data files in the
+       destination 'data' folder (never overwriting user data during updates).
+    6. Saves/updates installation settings in dbo.InstallationConfig and runs post-deploy verification.
 
 .EXAMPLE
     .\deploy\Install-HrPoc.ps1
@@ -34,7 +37,7 @@ param(
     [string]$IISSiteName = "",
     [string]$IISAppSubPath = "",
     [string]$InstallPath = "",
-    [string]$AppPoolName = "HrPocAppPool",
+    [string]$AppPoolName = "",
     [switch]$Unattended
 )
 
@@ -235,11 +238,73 @@ function Invoke-SqlQuery {
     }
 }
 
+function Stop-WebAppPoolSafely {
+    param(
+        [string]$PoolName,
+        [string]$TargetFolder = ""
+    )
+
+    if (-not (Test-Path "IIS:\AppPools\$PoolName")) { return }
+
+    $state = (Get-WebAppPoolState -Name $PoolName).Value
+    if ($state -eq "Started") {
+        Write-Host "  Stopping IIS Application Pool '$PoolName'..." -ForegroundColor Cyan
+        Stop-WebAppPool -Name $PoolName
+    }
+
+    # Wait for AppPool to report Stopped state (up to 15 seconds)
+    $timeout = 15
+    $elapsed = 0
+    while ($elapsed -lt $timeout) {
+        $state = (Get-WebAppPoolState -Name $PoolName).Value
+        if ($state -eq "Stopped") { break }
+        Start-Sleep -Seconds 1
+        $elapsed++
+    }
+
+    # Safety delay for worker processes to shut down
+    Start-Sleep -Seconds 3
+
+    # Check and wait until file locks are released on critical binaries
+    if ($TargetFolder -and (Test-Path $TargetFolder)) {
+        $testFile = Join-Path $TargetFolder "HrPoc.Web.dll"
+        if (Test-Path $testFile) {
+            Write-Host "  Checking that worker process released file handles..." -ForegroundColor Cyan
+            $maxWait = 15
+            $waitCount = 0
+            $released = $false
+            while ($waitCount -lt $maxWait) {
+                $stream = $null
+                try {
+                    $stream = [System.IO.File]::Open($testFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+                    $released = $true
+                    break
+                } catch {
+                    Start-Sleep -Seconds 1
+                    $waitCount++
+                } finally {
+                    if ($stream) {
+                        $stream.Close()
+                        $stream.Dispose()
+                    }
+                }
+            }
+            if ($released) {
+                Write-Ok "Application Pool stopped and file handles released."
+            } else {
+                Write-Warn "File '$testFile' is still locked after $maxWait seconds. Proceeding with deployment..."
+            }
+        }
+    } else {
+        Write-Ok "Application Pool '$PoolName' stopped."
+    }
+}
+
 # ============================================================================
 # Step 0: Check Administrator Privileges & Locate Project Paths
 # ============================================================================
 Clear-Host
-Write-Step "My Demo Corp -- HR System PoC (v1.1) Installer"
+Write-Step "My Demo Corp -- HR System PoC (v1.1) Installer / Updater"
 
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -369,16 +434,14 @@ if (-not (Test-Path (Join-Path $publishDir "HrPoc.Web.dll"))) {
 }
 Write-Ok "Application binaries verified at '$publishDir'."
 
-if (-not (Test-Path (Join-Path $dataDir "MDC-HR-Data.csv"))) {
-    Write-Err "CSV template data files (MDC-*.csv) not found at '$dataDir'."
-    exit 1
-}
-Write-Ok "CSV reference files verified at '$dataDir'."
+# ============================================================================
+# Step 2: Database Connection & Mode Detection
+# ============================================================================
+Write-Step "Step 2: Database Connection & Mode Detection"
 
-# ============================================================================
-# Step 2: Collect SQL Server & IIS Configuration
-# ============================================================================
-Write-Step "Step 2: Database & IIS Configuration"
+$fullSqlServer = ""
+$IsUpdate = $false
+$existingConfig = $null
 
 while ($true) {
     $SqlHost     = Read-Default "SQL Server Hostname or IP" ($(if ($SqlHost) { $SqlHost } else { "localhost" }))
@@ -391,7 +454,7 @@ while ($true) {
     }
 
     Write-Host ""
-    Write-Host "  Select Administrator Authentication Method (to create DB & login on '$fullSqlServer'):" -ForegroundColor Cyan
+    Write-Host "  Select Administrator Authentication Method (to connect to '$fullSqlServer'):" -ForegroundColor Cyan
     Write-Host "    [1] Windows Account in UPN (user@domain.com) or DOMAIN\user format"
     Write-Host "    [2] SQL Server Admin Login (e.g. 'sa')"
     Write-Host "    [3] Current Windows Session ($(whoami))"
@@ -420,14 +483,12 @@ while ($true) {
     }
 
     Write-Host ""
-    $DatabaseName   = Read-Default "Target Database Name to create/use" ($(if ($DatabaseName) { $DatabaseName } else { "HrPocDb" }))
-    $AppSqlLogin    = Read-Default "Dedicated SQL Login for HR PoC application" ($(if ($AppSqlLogin) { $AppSqlLogin } else { "hr_app" }))
-    $AppSqlPassword = Read-SecretPlain "Password for dedicated SQL Login '$AppSqlLogin'" $AppSqlPassword
+    $DatabaseName = Read-Default "Target Database Name" ($(if ($DatabaseName) { $DatabaseName } else { "HrPocDb" }))
 
     # ========================================================================
-    # Step 3: Validate SQL Server Connectivity & Permissions
+    # Step 3: Validate SQL Server & Inspect Existing Database / Config
     # ========================================================================
-    Write-Step "Step 3: Validating SQL Server Connection ('$fullSqlServer')"
+    Write-Step "Step 3: Validating SQL Server Connection & Inspecting '$DatabaseName'"
     try {
         $checkQuery = @"
 SELECT
@@ -438,7 +499,8 @@ SELECT
     SUSER_SNAME() AS ConnectedLogin,
     IS_SRVROLEMEMBER('sysadmin') AS IsSysAdmin,
     IS_SRVROLEMEMBER('dbcreator') AS IsDbCreator,
-    IS_SRVROLEMEMBER('securityadmin') AS IsSecurityAdmin;
+    IS_SRVROLEMEMBER('securityadmin') AS IsSecurityAdmin,
+    DB_ID(N'$DatabaseName') AS TargetDbId;
 "@
         $rows = @(Invoke-SqlQuery -ServerInstance $fullSqlServer -Database "master" -AuthType $AdminAuthType -Username $AdminUsername -Password $AdminPassword -Query $checkQuery)
         $row = $rows[0]
@@ -447,7 +509,7 @@ SELECT
         Write-Ok "Authenticated as: $($row.ConnectedLogin)"
 
         if ($row.IsSysAdmin -ne 1 -and ($row.IsDbCreator -ne 1 -or $row.IsSecurityAdmin -ne 1)) {
-            Write-Err "Account '$($row.ConnectedLogin)' does not have 'sysadmin' (or 'dbcreator' + 'securityadmin') rights required to create databases and logins."
+            Write-Err "Account '$($row.ConnectedLogin)' does not have 'sysadmin' (or 'dbcreator' + 'securityadmin') rights required to manage databases and logins."
             if ($Unattended) { exit 1 }
             $AdminAuthType = ""
             continue
@@ -455,7 +517,7 @@ SELECT
         Write-Ok "Admin permissions verified (sysadmin=$($row.IsSysAdmin))."
 
         if ($row.WindowsAuthOnly -eq 1) {
-            Write-Warn "SQL Server is currently in 'Windows Authentication Only' mode, which blocks SQL login '$AppSqlLogin'."
+            Write-Warn "SQL Server is currently in 'Windows Authentication Only' mode, which blocks SQL login."
             $isLocalSql = ($SqlHost -match "^(localhost|127\.0\.0\.1|\.|" + [Regex]::Escape($env:COMPUTERNAME) + ")$")
             if ($isLocalSql -and (Read-YesNo "Enable Mixed Mode Authentication (SQL + Windows) and restart SQL Server now?" $true)) {
                 $enableMixedSql = "EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'LoginMode', REG_DWORD, 2;"
@@ -466,7 +528,7 @@ SELECT
                 Start-Sleep -Seconds 3
                 Write-Ok "Mixed Mode Authentication enabled on '$fullSqlServer'."
             } else {
-                Write-Err "Mixed Mode Authentication is required for SQL user '$AppSqlLogin'."
+                Write-Err "Mixed Mode Authentication is required for application SQL user."
                 if ($Unattended) { exit 1 }
                 $AdminAuthType = ""
                 continue
@@ -474,6 +536,39 @@ SELECT
         } else {
             Write-Ok "SQL Server Mixed Mode Authentication is enabled."
         }
+
+        # Check if database exists and whether InstallationConfig table is present
+        if ($row.TargetDbId) {
+            Write-Ok "Target database '$DatabaseName' found on '$fullSqlServer'."
+            $cfgQuery = @"
+IF OBJECT_ID(N'dbo.InstallationConfig', N'U') IS NOT NULL
+BEGIN
+    SELECT TOP 1
+        Id,
+        IISSiteName,
+        IISAppSubPath,
+        InstallPath,
+        AppPoolName,
+        AppSqlLogin,
+        ISNULL(AppUrl, '') AS AppUrl,
+        ISNULL(Version, '') AS Version,
+        CONVERT(VARCHAR(30), InstalledAtUtc, 126) AS InstalledAtUtc,
+        CONVERT(VARCHAR(30), UpdatedAtUtc, 126) AS UpdatedAtUtc
+    FROM [dbo].[InstallationConfig]
+    ORDER BY Id DESC;
+END
+ELSE
+BEGIN
+    SELECT NULL AS IISSiteName WHERE 1 = 0;
+END;
+"@
+            $cfgRows = @(Invoke-SqlQuery -ServerInstance $fullSqlServer -Database $DatabaseName -AuthType $AdminAuthType -Username $AdminUsername -Password $AdminPassword -Query $cfgQuery)
+            if ($cfgRows.Count -gt 0 -and $cfgRows[0].IISSiteName) {
+                $existingConfig = $cfgRows[0]
+                $IsUpdate = $true
+            }
+        }
+
         break
     } catch {
         Write-Err "SQL Server connection test failed: $($_.Exception.Message)"
@@ -485,37 +580,94 @@ SELECT
     }
 }
 
-# Prompt for IIS Site & Virtual Path
-Write-Host ""
-$IISSiteName   = Read-Default "IIS Website Name" ($(if ($IISSiteName) { $IISSiteName } else { "Default Web Site" }))
-$IISAppSubPath = Read-Default "IIS Virtual Application Subpath (e.g. 'hr' for http://server/hr/)" ($(if ($IISAppSubPath) { $IISAppSubPath } else { "hr" }))
-$IISAppSubPath = $IISAppSubPath.Trim('/')
-$defaultInstallDir = if ($InstallPath) { $InstallPath } else { "C:\inetpub\wwwroot\$IISAppSubPath" }
-$InstallPath   = Read-Default "Physical Installation Directory" $defaultInstallDir
-$AppPoolName   = Read-Default "IIS Application Pool Name" $AppPoolName
+# ============================================================================
+# Mode Selection: UPDATE MODE vs FRESH INSTALL MODE
+# ============================================================================
+if ($IsUpdate) {
+    # UPDATE MODE: Load existing settings without asking redundant questions
+    $IISSiteName   = $existingConfig.IISSiteName
+    $IISAppSubPath = $existingConfig.IISAppSubPath
+    $InstallPath   = $existingConfig.InstallPath
+    $AppPoolName   = $existingConfig.AppPoolName
+    $AppSqlLogin   = $existingConfig.AppSqlLogin
+    $installedVer  = if ($existingConfig.Version) { $existingConfig.Version } else { "1.1" }
+    $appUrl        = if ($existingConfig.AppUrl) { $existingConfig.AppUrl } else { "http://$($env:COMPUTERNAME.ToLowerInvariant())/$IISAppSubPath/" }
 
-Write-Host ""
-Write-Host "  Deployment Summary:" -ForegroundColor Cyan
-Write-Host "    SQL Server         : $fullSqlServer"
-Write-Host "    Admin Auth         : $AdminAuthType ($AdminUsername)"
-Write-Host "    Target Database    : $DatabaseName"
-Write-Host "    App SQL User       : $AppSqlLogin (db_owner on $DatabaseName)"
-Write-Host "    IIS Target         : $IISSiteName / /$IISAppSubPath"
-Write-Host "    Physical Directory : $InstallPath"
-Write-Host "    AppPool            : $AppPoolName"
-Write-Host ""
+    # Attempt to extract current SQL password from appsettings.Production.json
+    $prodConfigPath = Join-Path $InstallPath "appsettings.Production.json"
+    if (Test-Path $prodConfigPath) {
+        try {
+            $rawJson = Get-Content $prodConfigPath -Raw | ConvertFrom-Json
+            $existingConnStr = $rawJson.ConnectionStrings.DefaultConnection
+            if ($existingConnStr -match "(?i)Password=([^;]+)") {
+                $AppSqlPassword = $matches[1]
+            }
+        } catch { }
+    }
 
-if (-not (Read-YesNo "Proceed with deployment?" $true)) {
-    Write-Warn "Deployment cancelled by user."
-    exit 0
+    if (-not $AppSqlPassword) {
+        $AppSqlPassword = Read-SecretPlain "Password for existing dedicated SQL Login '$AppSqlLogin'" "P@ssw0rd"
+    }
+
+    Write-Host ""
+    Write-Host "============================================================================" -ForegroundColor Green
+    Write-Host "  EXISTING INSTALLATION DETECTED -> UPDATE MODE" -ForegroundColor Green
+    Write-Host "============================================================================" -ForegroundColor Green
+    Write-Host "    Target Database       : $DatabaseName"
+    Write-Host "    Installed Version     : $installedVer"
+    Write-Host "    IIS Website Name      : $IISSiteName"
+    Write-Host "    Virtual Application   : /$IISAppSubPath"
+    Write-Host "    Physical Directory    : $InstallPath"
+    Write-Host "    Application Pool      : $AppPoolName"
+    Write-Host "    Dedicated SQL Login   : $AppSqlLogin"
+    Write-Host "    Application URL       : $appUrl"
+    Write-Host ""
+    Write-Host "    New Version to Deploy : v1.1.2" -ForegroundColor Cyan
+    Write-Host "============================================================================" -ForegroundColor Green
+    Write-Host ""
+
+    if (-not (Read-YesNo "Proceed with updating this installation to v1.1.2?" $true)) {
+        Write-Warn "Update cancelled by user."
+        exit 0
+    }
+} else {
+    # FRESH INSTALL MODE: Collect remaining parameters
+    Write-Host ""
+    Write-Host "  New installation configuration for database '$DatabaseName':" -ForegroundColor Cyan
+    $AppSqlLogin    = Read-Default "Dedicated SQL Login for HR PoC application" ($(if ($AppSqlLogin) { $AppSqlLogin } else { "hr_app" }))
+    $AppSqlPassword = Read-SecretPlain "Password for dedicated SQL Login '$AppSqlLogin'" $AppSqlPassword
+
+    $IISSiteName    = Read-Default "IIS Website Name" ($(if ($IISSiteName) { $IISSiteName } else { "Default Web Site" }))
+    $IISAppSubPath  = Read-Default "IIS Virtual Application Subpath (e.g. 'hr' for http://server/hr/)" ($(if ($IISAppSubPath) { $IISAppSubPath } else { "hr" }))
+    $IISAppSubPath  = $IISAppSubPath.Trim('/')
+    $defaultInstall = if ($InstallPath) { $InstallPath } else { "C:\inetpub\wwwroot\$IISAppSubPath" }
+    $InstallPath    = Read-Default "Physical Installation Directory" $defaultInstall
+    $AppPoolName    = if ($AppPoolName) { $AppPoolName } else { "HrPocAppPool" }
+    $AppPoolName    = Read-Default "IIS Application Pool Name" $AppPoolName
+
+    Write-Host ""
+    Write-Host "  Deployment Summary:" -ForegroundColor Cyan
+    Write-Host "    SQL Server         : $fullSqlServer"
+    Write-Host "    Admin Auth         : $AdminAuthType ($AdminUsername)"
+    Write-Host "    Target Database    : $DatabaseName"
+    Write-Host "    App SQL User       : $AppSqlLogin (db_owner on $DatabaseName)"
+    Write-Host "    IIS Target         : $IISSiteName / /$IISAppSubPath"
+    Write-Host "    Physical Directory : $InstallPath"
+    Write-Host "    AppPool            : $AppPoolName"
+    Write-Host ""
+
+    if (-not (Read-YesNo "Proceed with deployment?" $true)) {
+        Write-Warn "Deployment cancelled by user."
+        exit 0
+    }
 }
 
 # ============================================================================
-# Step 4: Provision Database, Deploy to IIS & Verify
+# Step 4: Provision SQL Server, Stop IIS & Deploy Binaries
 # ============================================================================
 Write-Step "Step 4: Provisioning SQL Server & Deploying to IIS"
 
-# 4.1 Create Database & Login using Admin Credentials
+# 4.1 Create Database & Login if needed using Admin Credentials
 $sqlProvisionMaster = @"
 IF DB_ID(N'$DatabaseName') IS NULL
 BEGIN
@@ -547,31 +699,77 @@ ALTER ROLE [db_owner] ADD MEMBER [$AppSqlLogin];
 
 [void](Invoke-SqlQuery -ServerInstance $fullSqlServer -Database "master" -AuthType $AdminAuthType -Username $AdminUsername -Password $AdminPassword -Query $sqlProvisionMaster -NonQuery)
 [void](Invoke-SqlQuery -ServerInstance $fullSqlServer -Database $DatabaseName -AuthType $AdminAuthType -Username $AdminUsername -Password $AdminPassword -Query $sqlProvisionDb -NonQuery)
-Write-Ok "Database '$DatabaseName' and dedicated user '$AppSqlLogin' (db_owner) provisioned."
+Write-Ok "Database '$DatabaseName' and dedicated user '$AppSqlLogin' (db_owner) verified."
 
-# 4.2 Verify application SQL login works
-$testAppRows = @(Invoke-SqlQuery -ServerInstance $fullSqlServer -Database $DatabaseName -AuthType "SqlLogin" -Username $AppSqlLogin -Password $AppSqlPassword -Query "SELECT SUSER_SNAME() AS LoginName, DB_NAME() AS DbName;")
-$testAppRow = $testAppRows[0]
-Write-Ok "Verified login as '$($testAppRow.LoginName)' on database '$($testAppRow.DbName)'."
+# 4.2 Record / Update dbo.InstallationConfig table in target database
+$defaultAppUrl = "http://$($env:COMPUTERNAME.ToLowerInvariant())/$IISAppSubPath/"
+$sqlRecordConfig = @"
+IF OBJECT_ID(N'dbo.InstallationConfig', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[InstallationConfig] (
+        [Id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        [IISSiteName] NVARCHAR(256) NOT NULL,
+        [IISAppSubPath] NVARCHAR(256) NOT NULL,
+        [InstallPath] NVARCHAR(512) NOT NULL,
+        [AppPoolName] NVARCHAR(256) NOT NULL,
+        [AppSqlLogin] NVARCHAR(128) NOT NULL,
+        [AppUrl] NVARCHAR(512) NULL,
+        [Version] NVARCHAR(64) NOT NULL,
+        [InstalledAtUtc] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        [UpdatedAtUtc] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END;
 
-# 4.3 Stop IIS AppPool if running
-if (Test-Path "IIS:\AppPools\$AppPoolName") {
-    if ((Get-WebAppPoolState -Name $AppPoolName).Value -eq "Started") {
-        Write-Host "  Stopping IIS AppPool '$AppPoolName'..."
-        Stop-WebAppPool -Name $AppPoolName
-        Start-Sleep -Seconds 2
-    }
-}
+IF EXISTS (SELECT 1 FROM [dbo].[InstallationConfig])
+BEGIN
+    UPDATE [dbo].[InstallationConfig]
+    SET [IISSiteName] = N'$IISSiteName',
+        [IISAppSubPath] = N'$IISAppSubPath',
+        [InstallPath] = N'$InstallPath',
+        [AppPoolName] = N'$AppPoolName',
+        [AppSqlLogin] = N'$AppSqlLogin',
+        [AppUrl] = N'$defaultAppUrl',
+        [Version] = N'1.1.2',
+        [UpdatedAtUtc] = SYSUTCDATETIME();
+END
+ELSE
+BEGIN
+    INSERT INTO [dbo].[InstallationConfig]
+        ([IISSiteName], [IISAppSubPath], [InstallPath], [AppPoolName], [AppSqlLogin], [AppUrl], [Version], [InstalledAtUtc], [UpdatedAtUtc])
+    VALUES
+        (N'$IISSiteName', N'$IISAppSubPath', N'$InstallPath', N'$AppPoolName', N'$AppSqlLogin', N'$defaultAppUrl', N'1.1.2', SYSUTCDATETIME(), SYSUTCDATETIME());
+END;
+"@
 
-# 4.4 Copy Files & Write Production Config
+[void](Invoke-SqlQuery -ServerInstance $fullSqlServer -Database $DatabaseName -AuthType $AdminAuthType -Username $AdminUsername -Password $AdminPassword -Query $sqlRecordConfig -NonQuery)
+Write-Ok "Installation configuration recorded in '$DatabaseName.dbo.InstallationConfig'."
+
+# 4.3 Stop IIS AppPool and wait for file locks to be released
+Stop-WebAppPoolSafely -PoolName $AppPoolName -TargetFolder $InstallPath
+
+# 4.4 Copy Application Binaries & Preserve CSV Data Files
 New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
 New-Item -ItemType Directory -Path "$InstallPath\data" -Force | Out-Null
 New-Item -ItemType Directory -Path "$InstallPath\logs" -Force | Out-Null
 
-Write-Host "  Copying application files to '$InstallPath'..."
+Write-Host "  Copying updated application binaries to '$InstallPath'..."
 Copy-Item -Path "$publishDir\*" -Destination $InstallPath -Recurse -Force
-Copy-Item -Path "$dataDir\*.csv" -Destination "$InstallPath\data" -Force
 
+# CSV Preservation: Never overwrite existing CSV files in data/ if already present
+$targetDataDir = Join-Path $InstallPath "data"
+$existingCsvs = @(Get-ChildItem -Path $targetDataDir -Filter "*.csv" -File -ErrorAction SilentlyContinue)
+
+if ($existingCsvs.Count -gt 0) {
+    Write-Ok "Preserved $($existingCsvs.Count) existing CSV data file(s) in '$targetDataDir' (user data was not overwritten)."
+} else {
+    Write-Host "  Copying template CSV reference data to '$targetDataDir'..."
+    if (Test-Path (Join-Path $dataDir "MDC-HR-Data.csv")) {
+        Copy-Item -Path "$dataDir\*.csv" -Destination $targetDataDir -Force
+        Write-Ok "Template CSV data files copied to '$targetDataDir'."
+    }
+}
+
+# 4.5 Write appsettings.Production.json
 $appConnStr = "Server=$fullSqlServer;Database=$DatabaseName;User Id=$AppSqlLogin;Password=$AppSqlPassword;MultipleActiveResultSets=true;TrustServerCertificate=True"
 $prodConfig = @{
     ConnectionStrings = @{
@@ -580,9 +778,9 @@ $prodConfig = @{
     CsvDataDirectory = "./data"
 } | ConvertTo-Json -Depth 5
 Set-Content -Path "$InstallPath\appsettings.Production.json" -Value $prodConfig -Encoding UTF8
-Write-Ok "Application files and 'appsettings.Production.json' written."
+Write-Ok "'appsettings.Production.json' configured with dedicated SQL login '$AppSqlLogin'."
 
-# 4.5 Configure IIS AppPool & Web Application
+# 4.6 Configure IIS AppPool & Web Application
 if (-not (Test-Path "IIS:\AppPools\$AppPoolName")) {
     New-WebAppPool -Name $AppPoolName | Out-Null
 }
@@ -598,26 +796,32 @@ if (-not $existingApp) {
 
 Start-WebAppPool -Name $AppPoolName
 Start-Website -Name $IISSiteName
-Write-Ok "IIS AppPool '$AppPoolName' and application '/$IISAppSubPath' started."
+Write-Ok "IIS Application Pool '$AppPoolName' and application '/$IISAppSubPath' started."
 
-# 4.6 Run Post-Deployment Smoke Test
-Write-Step "Step 5: Verifying Live Application & Initial CSV Seeding"
-$baseUrl = "http://localhost/$IISAppSubPath"
+# ============================================================================
+# Step 5: Verification Smoke Test
+# ============================================================================
+Write-Step "Step 5: Verifying Application Health"
+$localTestUrl = "http://localhost/$IISAppSubPath"
 try {
-    Write-Host "  Waiting for initial database seeding ($baseUrl/api/dashboard/stats)..." -ForegroundColor Cyan
-    $stats = Invoke-RestMethod -Uri "$baseUrl/api/dashboard/stats" -TimeoutSec 45
-    Write-Ok "Web UI & REST API responded! Database Provider: $($stats.databaseProvider)"
-    Write-Ok "Seeded Counts: Employees=$($stats.totalEmployees), Departments=$($stats.totalDepartments), CostCenters=$($stats.totalCostCenters), Locations=$($stats.totalLocations)"
+    Write-Host "  Querying $localTestUrl/api/dashboard/stats..." -ForegroundColor Cyan
+    $stats = Invoke-RestMethod -Uri "$localTestUrl/api/dashboard/stats" -TimeoutSec 45
+    Write-Ok "Application responded! Version: $($stats.installedVersion), Database Provider: $($stats.databaseProvider)"
+    Write-Ok "Live Counts: Employees=$($stats.totalEmployees), Departments=$($stats.totalDepartments), CostCenters=$($stats.totalCostCenters), Locations=$($stats.totalLocations)"
 
-    $meta = Invoke-WebRequest -Uri "$baseUrl/odata/`$metadata" -UseBasicParsing -TimeoutSec 15
-    Write-Ok "OData v4 Endpoint verified ($baseUrl/odata/`$metadata -> HTTP $($meta.StatusCode))"
+    $meta = Invoke-WebRequest -Uri "$localTestUrl/odata/`$metadata" -UseBasicParsing -TimeoutSec 15
+    Write-Ok "OData v4 Metadata verified ($localTestUrl/odata/`$metadata -> HTTP $($meta.StatusCode))"
 } catch {
     Write-Warn "Smoke test warning: $($_.Exception.Message)"
 }
 
 Write-Host ""
 Write-Host "============================================================================" -ForegroundColor Green
-Write-Host "  INSTALLATION COMPLETE!" -ForegroundColor Green
+if ($IsUpdate) {
+    Write-Host "  UPDATE COMPLETE! (v1.1.2)" -ForegroundColor Green
+} else {
+    Write-Host "  INSTALLATION COMPLETE! (v1.1.2)" -ForegroundColor Green
+}
 Write-Host "  Web UI URL        : http://$($env:COMPUTERNAME.ToLowerInvariant())/$IISAppSubPath/" -ForegroundColor White
 Write-Host "  OData v4 Root URL : http://$($env:COMPUTERNAME.ToLowerInvariant())/$IISAppSubPath/odata" -ForegroundColor White
 Write-Host "  OData Metadata    : http://$($env:COMPUTERNAME.ToLowerInvariant())/$IISAppSubPath/odata/`$metadata" -ForegroundColor White

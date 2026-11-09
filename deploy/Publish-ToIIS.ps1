@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Deploys the My Demo Corp HR PoC application to IIS under Default Web Site (/hr)
+    Deploys or updates the My Demo Corp HR PoC application to IIS under Default Web Site (/hr)
     and configures a dedicated SQL Server user (hr_app) on HrPocDb.
 #>
 param(
@@ -21,17 +21,47 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "=== Deploying My Demo Corp HR PoC to IIS ($SiteName/$AppSubPath -> $InstallPath) ===" -ForegroundColor Cyan
+Write-Host "=== Deploying / Updating My Demo Corp HR PoC in IIS ($SiteName/$AppSubPath -> $InstallPath) ===" -ForegroundColor Cyan
 
 Import-Module WebAdministration -ErrorAction Stop
 
-# 1. Stop existing AppPool if running
+# 1. Stop existing AppPool safely and wait for file handles to be released
 if (Test-Path "IIS:\AppPools\$AppPoolName") {
     $state = (Get-WebAppPoolState -Name $AppPoolName).Value
     if ($state -eq "Started") {
         Write-Host "Stopping AppPool '$AppPoolName'..."
         Stop-WebAppPool -Name $AppPoolName
-        Start-Sleep -Seconds 2
+        $timeout = 15
+        $elapsed = 0
+        while ($elapsed -lt $timeout) {
+            if ((Get-WebAppPoolState -Name $AppPoolName).Value -eq "Stopped") { break }
+            Start-Sleep -Seconds 1
+            $elapsed++
+        }
+        Start-Sleep -Seconds 3
+    }
+}
+
+# Check and verify file locks are released
+$lockedDll = Join-Path $InstallPath "HrPoc.Web.dll"
+if (Test-Path $lockedDll) {
+    Write-Host "Verifying file locks on '$lockedDll'..."
+    $maxWait = 15
+    $waitCount = 0
+    while ($waitCount -lt $maxWait) {
+        $stream = $null
+        try {
+            $stream = [System.IO.File]::Open($lockedDll, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+            break
+        } catch {
+            Start-Sleep -Seconds 1
+            $waitCount++
+        } finally {
+            if ($stream) {
+                $stream.Close()
+                $stream.Dispose()
+            }
+        }
     }
 }
 
@@ -71,6 +101,42 @@ BEGIN
     ALTER USER [$AppSqlLogin] WITH LOGIN = [$AppSqlLogin];
 END;
 ALTER ROLE [db_owner] ADD MEMBER [$AppSqlLogin];
+
+IF OBJECT_ID(N'dbo.InstallationConfig', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[InstallationConfig] (
+        [Id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        [IISSiteName] NVARCHAR(256) NOT NULL,
+        [IISAppSubPath] NVARCHAR(256) NOT NULL,
+        [InstallPath] NVARCHAR(512) NOT NULL,
+        [AppPoolName] NVARCHAR(256) NOT NULL,
+        [AppSqlLogin] NVARCHAR(128) NOT NULL,
+        [AppUrl] NVARCHAR(512) NULL,
+        [Version] NVARCHAR(64) NOT NULL,
+        [InstalledAtUtc] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        [UpdatedAtUtc] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END;
+
+IF EXISTS (SELECT 1 FROM [dbo].[InstallationConfig])
+BEGIN
+    UPDATE [dbo].[InstallationConfig]
+    SET [IISSiteName] = N'$SiteName',
+        [IISAppSubPath] = N'$AppSubPath',
+        [InstallPath] = N'$InstallPath',
+        [AppPoolName] = N'$AppPoolName',
+        [AppSqlLogin] = N'$AppSqlLogin',
+        [AppUrl] = N'http://$($env:COMPUTERNAME.ToLowerInvariant())/$AppSubPath/',
+        [Version] = N'1.1.2',
+        [UpdatedAtUtc] = SYSUTCDATETIME();
+END
+ELSE
+BEGIN
+    INSERT INTO [dbo].[InstallationConfig]
+        ([IISSiteName], [IISAppSubPath], [InstallPath], [AppPoolName], [AppSqlLogin], [AppUrl], [Version], [InstalledAtUtc], [UpdatedAtUtc])
+    VALUES
+        (N'$SiteName', N'$AppSubPath', N'$InstallPath', N'$AppPoolName', N'$AppSqlLogin', N'http://$($env:COMPUTERNAME.ToLowerInvariant())/$AppSubPath/', N'1.1.2', SYSUTCDATETIME(), SYSUTCDATETIME());
+END;
 "@
 
 $conn = New-Object System.Data.SqlClient.SqlConnection($masterConnStr)
@@ -81,7 +147,7 @@ $cmd.ExecuteNonQuery() | Out-Null
 $cmd.CommandText = $sqlGrantDbOwner
 $cmd.ExecuteNonQuery() | Out-Null
 $conn.Close()
-Write-Host "Database '$DatabaseName' and SQL user '$AppSqlLogin' (db_owner) configured." -ForegroundColor Green
+Write-Host "Database '$DatabaseName', user '$AppSqlLogin', and InstallationConfig recorded." -ForegroundColor Green
 
 # 3. Create install directories & copy files
 New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
@@ -90,8 +156,17 @@ New-Item -ItemType Directory -Path "$InstallPath\logs" -Force | Out-Null
 
 Write-Host "Copying application binaries and static assets..."
 Copy-Item -Path "$PublishSourceDir\*" -Destination $InstallPath -Recurse -Force
-Write-Host "Copying CSV reference data..."
-Copy-Item -Path "$DataSourceDir\*.csv" -Destination "$InstallPath\data" -Force
+
+# CSV Preservation: Never overwrite existing CSV files in data/
+$targetDataDir = Join-Path $InstallPath "data"
+$existingCsvs = @(Get-ChildItem -Path $targetDataDir -Filter "*.csv" -File -ErrorAction SilentlyContinue)
+
+if ($existingCsvs.Count -gt 0) {
+    Write-Host "Preserved $($existingCsvs.Count) existing CSV data file(s) in '$targetDataDir' (custom user data not overwritten)." -ForegroundColor Green
+} else {
+    Write-Host "Copying CSV reference data..."
+    Copy-Item -Path "$DataSourceDir\*.csv" -Destination $targetDataDir -Force
+}
 
 # 4. Write Production configuration using dedicated SQL user (hr_app)
 $appConnStr = "Server=$SqlServerInstance;Database=$DatabaseName;User Id=$AppSqlLogin;Password=$AppSqlPassword;MultipleActiveResultSets=true;TrustServerCertificate=True"
@@ -124,4 +199,4 @@ if (-not $existingApp) {
 Start-WebAppPool -Name $AppPoolName
 Start-Website -Name $SiteName
 
-Write-Host "=== Deployment Complete! Application is running at http://localhost/$AppSubPath/ ===" -ForegroundColor Green
+Write-Host "=== Deployment / Update Complete! Application is running at http://localhost/$AppSubPath/ ===" -ForegroundColor Green
