@@ -421,6 +421,40 @@ function updateLookupHighlight() {
 }
 
 function bindEmployeeLookupInputs() {
+  // Inject self-contained CSS rules so the lookup popover and clear button work even if app.css is cached
+  if (!document.getElementById('empLookupInlineStyles')) {
+    const style = document.createElement('style');
+    style.id = 'empLookupInlineStyles';
+    style.textContent = `
+      .emp-lookup-wrap { position: relative !important; display: flex !important; align-items: center !important; width: 100% !important; }
+      .emp-lookup-wrap input[type="text"] { padding-right: 28px !important; width: 100% !important; }
+      .emp-lookup-clear { position: absolute !important; right: 6px !important; top: 50% !important; transform: translateY(-50%) !important; width: 18px !important; height: 18px !important; border: none !important; border-radius: 50% !important; background: #e2e8f0 !important; color: #475569 !important; font-size: 12px !important; line-height: 1 !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; cursor: pointer !important; padding: 0 !important; z-index: 2 !important; }
+      .emp-lookup-clear.hidden { display: none !important; }
+      .emp-lookup-clear:hover { background: #cbd5e1 !important; color: #0f172a !important; }
+      .emp-lookup-popover { position: fixed !important; z-index: 2500 !important; background: #ffffff !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.25), 0 4px 10px -2px rgba(15, 23, 42, 0.12) !important; display: flex; flex-direction: column !important; max-height: 280px; min-width: 280px; overflow: hidden !important; }
+      .emp-lookup-popover.hidden { display: none !important; }
+      .emp-lookup-header { padding: 6px 10px !important; background: #f8fafc !important; border-bottom: 1px solid #e2e8f0 !important; font-size: 11px !important; color: #64748b !important; display: flex !important; align-items: center !important; justify-content: space-between !important; gap: 8px !important; }
+      .emp-lookup-list { overflow-y: auto !important; max-height: 240px !important; background: #ffffff !important; }
+      .emp-lookup-item { padding: 7px 10px !important; border-bottom: 1px solid #f1f5f9 !important; cursor: pointer !important; display: flex !important; flex-direction: column !important; gap: 2px !important; background: #ffffff; }
+      .emp-lookup-item:last-child { border-bottom: none !important; }
+      .emp-lookup-item:hover, .emp-lookup-item.active { background: #eff6ff !important; }
+      .emp-lookup-main { display: flex !important; align-items: center !important; justify-content: space-between !important; gap: 8px !important; }
+      .emp-lookup-user { font-weight: 700 !important; color: #0f62fe !important; }
+      .emp-lookup-name { font-weight: 600 !important; color: #0f172a !important; flex: 1 !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
+      .emp-lookup-pnum { color: #64748b !important; font-size: 11px !important; }
+      .emp-lookup-sub { font-size: 11px !important; color: #64748b !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
+      .emp-lookup-empty { padding: 12px 10px !important; text-align: center !important; font-size: 12px !important; color: #64748b !important; background: #ffffff !important; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  if (!document.getElementById('empLookupPopover')) {
+    const pop = document.createElement('div');
+    pop.id = 'empLookupPopover';
+    pop.className = 'emp-lookup-popover hidden';
+    document.body.appendChild(pop);
+  }
+
   LOOKUP_INPUT_IDS.forEach(id => {
     const input = document.getElementById(id);
     if (!input) return;
