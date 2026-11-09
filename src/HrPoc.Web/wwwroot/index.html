@@ -504,11 +504,11 @@
           </div>
           <div class="form-field">
             <label for="deptManager">Manager Username</label>
-            <input type="text" id="deptManager" list="employeeUsernamesList" placeholder="e.g. PATELS" />
+            <input type="text" id="deptManager" autocomplete="off" placeholder="Search name, username, or #..." />
           </div>
           <div class="form-field">
             <label for="deptDeputy">Deputy Manager Username</label>
-            <input type="text" id="deptDeputy" list="employeeUsernamesList" placeholder="e.g. FISCHERL" />
+            <input type="text" id="deptDeputy" autocomplete="off" placeholder="Search name, username, or #..." />
           </div>
         </div>
         <div class="form-field">
@@ -566,7 +566,7 @@
           </div>
           <div class="form-field">
             <label for="ccManager">Manager Username</label>
-            <input type="text" id="ccManager" list="employeeUsernamesList" placeholder="e.g. GREENEK" />
+            <input type="text" id="ccManager" autocomplete="off" placeholder="Search name, username, or #..." />
           </div>
         </div>
         <div class="modal-footer">
@@ -632,11 +632,11 @@
           </div>
           <div class="form-field">
             <label for="locManager">Manager Username</label>
-            <input type="text" id="locManager" list="employeeUsernamesList" />
+            <input type="text" id="locManager" autocomplete="off" placeholder="Search name, username, or #..." />
           </div>
           <div class="form-field">
             <label for="locAssistant">Assistant Manager</label>
-            <input type="text" id="locAssistant" list="employeeUsernamesList" />
+            <input type="text" id="locAssistant" autocomplete="off" placeholder="Search name, username, or #..." />
           </div>
         </div>
         <div class="modal-footer">
@@ -650,7 +650,7 @@
     </div>
   </div>
 
-  <datalist id="employeeUsernamesList"></datalist>
+  <div id="empLookupPopover" class="emp-lookup-popover hidden"></div>
   <div id="toastContainer" class="toast-container"></div>
 
   <script src="js/app.js"></script>

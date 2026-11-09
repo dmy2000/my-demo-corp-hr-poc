@@ -23,7 +23,7 @@ public class ODataEmployeesController : ODataController
         _db = db;
     }
 
-    [EnableQuery(MaxTop = 5000, PageSize = 1000, MaxExpansionDepth = 3)]
+    [EnableQuery(MaxTop = 50000, PageSize = 5000, MaxExpansionDepth = 3)]
     [HttpGet("Employees")]
     public IQueryable<Employee> Get()
     {

@@ -147,9 +147,9 @@ public class EmployeesController : ControllerBase
     }
 
     [HttpGet("lookup")]
-    public async Task<IActionResult> LookupEmployees([FromQuery] string? q = null, [FromQuery] int limit = 30, CancellationToken ct = default)
+    public async Task<IActionResult> LookupEmployees([FromQuery] string? q = null, [FromQuery] int limit = 50, CancellationToken ct = default)
     {
-        limit = Math.Clamp(limit, 5, 100);
+        limit = Math.Clamp(limit, 5, 250);
         var query = _db.Employees.AsNoTracking().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(q))
@@ -159,7 +159,28 @@ public class EmployeesController : ControllerBase
                 e.Username.Contains(term) ||
                 e.FirstName.Contains(term) ||
                 e.LastName.Contains(term) ||
-                e.PersonnelNumber.Contains(term));
+                (e.FirstName + " " + e.LastName).Contains(term) ||
+                (e.LastName + " " + e.FirstName).Contains(term) ||
+                e.PersonnelNumber.Contains(term) ||
+                (e.Email != null && e.Email.Contains(term)));
+
+            var filteredList = await query
+                .OrderBy(e => e.Username == term ? 0 : e.Username.StartsWith(term) ? 1 : (e.LastName.StartsWith(term) || e.FirstName.StartsWith(term)) ? 2 : 3)
+                .ThenBy(e => e.LastName)
+                .ThenBy(e => e.FirstName)
+                .Take(limit)
+                .Select(e => new
+                {
+                    e.Id,
+                    e.Username,
+                    e.PersonnelNumber,
+                    FullName = e.FirstName + " " + e.LastName,
+                    e.JobTitle,
+                    e.EmploymentStatus
+                })
+                .ToListAsync(ct);
+
+            return Ok(filteredList);
         }
 
         var list = await query

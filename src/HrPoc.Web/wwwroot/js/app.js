@@ -62,6 +62,7 @@ function formatDateTime(dt) {
 document.addEventListener('DOMContentLoaded', async () => {
   bindNavigation();
   bindModals();
+  bindEmployeeLookupInputs();
   bindEmployeeEvents();
   bindDepartmentEvents();
   bindCostCenterEvents();
@@ -247,9 +248,14 @@ function bindModals() {
     btn.addEventListener('click', () => closeModal(btn.dataset.close));
   });
 
-  // Close open modals on Escape key press
+  // Close open modals on Escape key press (if employee lookup popover is open, close it first)
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      const popover = document.getElementById('empLookupPopover');
+      if (popover && !popover.classList.contains('hidden')) {
+        closeEmployeeLookupPopover();
+        return;
+      }
       document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(modal => {
         modal.classList.add('hidden');
       });
@@ -258,21 +264,254 @@ function bindModals() {
 }
 
 function openModal(id) {
+  closeEmployeeLookupPopover();
   document.getElementById(id).classList.remove('hidden');
-  loadUsernamesDatalist();
+  syncLookupClearButtons();
 }
 
 function closeModal(id) {
+  closeEmployeeLookupPopover();
   document.getElementById(id).classList.add('hidden');
 }
 
-async function loadUsernamesDatalist() {
-  const dl = document.getElementById('employeeUsernamesList');
-  if (dl.children.length > 0) return;
+// ============================================================================
+// SERVER-SIDE EMPLOYEE AUTOCOMPLETE (Supports 5,000+ / 50,000+ Employees)
+// ============================================================================
+const LOOKUP_INPUT_IDS = ['deptManager', 'deptDeputy', 'ccManager', 'locManager', 'locAssistant'];
+let activeLookupInput = null;
+let lookupItems = [];
+let lookupActiveIndex = -1;
+let lookupDebounceTimer = null;
+let lookupReqCounter = 0;
+
+function closeEmployeeLookupPopover() {
+  const popover = document.getElementById('empLookupPopover');
+  if (popover) {
+    popover.classList.add('hidden');
+    popover.innerHTML = '';
+  }
+  activeLookupInput = null;
+  lookupItems = [];
+  lookupActiveIndex = -1;
+}
+
+function syncLookupClearButtons() {
+  LOOKUP_INPUT_IDS.forEach(id => {
+    const input = document.getElementById(id);
+    if (!input || !input.parentElement) return;
+    const clearBtn = input.parentElement.querySelector('.emp-lookup-clear');
+    if (clearBtn) {
+      clearBtn.classList.toggle('hidden', !input.value.trim());
+    }
+  });
+}
+
+function positionEmployeeLookupPopover(input) {
+  const popover = document.getElementById('empLookupPopover');
+  if (!popover || !input) return;
+
+  const rect = input.getBoundingClientRect();
+  const viewportHeight = window.innerHeight;
+  const spaceBelow = viewportHeight - rect.bottom - 12;
+  const spaceAbove = rect.top - 12;
+  const desiredMaxHeight = 270;
+
+  popover.style.width = `${Math.max(rect.width, 300)}px`;
+  popover.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - Math.max(rect.width, 300) - 8))}px`;
+
+  if (spaceBelow >= 180 || spaceBelow >= spaceAbove) {
+    popover.style.top = `${rect.bottom + 4}px`;
+    popover.style.bottom = 'auto';
+    popover.style.maxHeight = `${Math.min(desiredMaxHeight, Math.max(140, spaceBelow))}px`;
+  } else {
+    popover.style.bottom = `${viewportHeight - rect.top + 4}px`;
+    popover.style.top = 'auto';
+    popover.style.maxHeight = `${Math.min(desiredMaxHeight, Math.max(140, spaceAbove))}px`;
+  }
+}
+
+async function fetchAndRenderEmployeeLookup(input, queryText, isInitialFocus = false) {
+  const popover = document.getElementById('empLookupPopover');
+  if (!popover || !input) return;
+
+  activeLookupInput = input;
+  const reqId = ++lookupReqCounter;
+  const term = (queryText || '').trim();
+
   try {
-    const list = await api('api/employees/lookup?limit=100');
-    dl.innerHTML = list.map(e => `<option value="${esc(e.username)}">${esc(e.fullName)} (${esc(e.personnelNumber)})</option>`).join('');
-  } catch {}
+    let results = await api(`api/employees/lookup?q=${encodeURIComponent(term)}&limit=50`);
+    if (reqId !== lookupReqCounter || activeLookupInput !== input) return;
+
+    // If opened on focus when field already holds a single exact username, also load top 50 so user can browse
+    if (isInitialFocus && term && results.length <= 1) {
+      const topList = await api('api/employees/lookup?limit=50');
+      if (reqId !== lookupReqCounter || activeLookupInput !== input) return;
+      const seen = new Set(results.map(r => r.username));
+      topList.forEach(item => {
+        if (!seen.has(item.username)) {
+          results.push(item);
+        }
+      });
+    }
+
+    lookupItems = results || [];
+    lookupActiveIndex = lookupItems.length > 0 ? 0 : -1;
+
+    const headerLabel = term
+      ? `Matches for "${esc(term)}" (showing up to 50)`
+      : `Type Name, Username, or Personnel # to search all employees`;
+
+    if (lookupItems.length === 0) {
+      popover.innerHTML = `
+        <div class="emp-lookup-header"><span>${headerLabel}</span></div>
+        <div class="emp-lookup-empty">No employees matching "${esc(term)}" — you can still enter a custom username.</div>
+      `;
+    } else {
+      popover.innerHTML = `
+        <div class="emp-lookup-header"><span>${headerLabel}</span></div>
+        <div class="emp-lookup-list">
+          ${lookupItems.map((e, idx) => `
+            <div class="emp-lookup-item ${idx === lookupActiveIndex ? 'active' : ''}" data-idx="${idx}" data-username="${esc(e.username)}">
+              <div class="emp-lookup-main">
+                <span class="mono emp-lookup-user">${esc(e.username)}</span>
+                <span class="emp-lookup-name">${esc(e.fullName)}</span>
+                <span class="mono emp-lookup-pnum">#${esc(e.personnelNumber)}</span>
+              </div>
+              <div class="emp-lookup-sub">
+                ${esc(e.jobTitle || 'Employee')} &bull; ${esc(e.employmentStatus || 'Active')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    popover.classList.remove('hidden');
+    positionEmployeeLookupPopover(input);
+
+    popover.querySelectorAll('.emp-lookup-item').forEach(el => {
+      el.addEventListener('mousedown', (ev) => {
+        ev.preventDefault();
+        selectLookupEmployee(el.dataset.username);
+      });
+    });
+  } catch {
+    // Ignore transient network errors during typing
+  }
+}
+
+function selectLookupEmployee(username) {
+  if (!activeLookupInput) return;
+  activeLookupInput.value = username || '';
+  syncLookupClearButtons();
+  closeEmployeeLookupPopover();
+}
+
+function updateLookupHighlight() {
+  const popover = document.getElementById('empLookupPopover');
+  if (!popover) return;
+  const nodes = popover.querySelectorAll('.emp-lookup-item');
+  nodes.forEach((node, idx) => {
+    const isActive = idx === lookupActiveIndex;
+    node.classList.toggle('active', isActive);
+    if (isActive) {
+      node.scrollIntoView({ block: 'nearest' });
+    }
+  });
+}
+
+function bindEmployeeLookupInputs() {
+  LOOKUP_INPUT_IDS.forEach(id => {
+    const input = document.getElementById(id);
+    if (!input) return;
+
+    // Wrap input to place the clear (x) button inside
+    const wrap = document.createElement('div');
+    wrap.className = 'emp-lookup-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'emp-lookup-clear hidden';
+    clearBtn.title = 'Clear username and search all employees';
+    clearBtn.innerHTML = '&times;';
+    wrap.appendChild(clearBtn);
+
+    clearBtn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      input.value = '';
+      syncLookupClearButtons();
+      input.focus();
+      fetchAndRenderEmployeeLookup(input, '', true);
+    });
+
+    input.addEventListener('focus', () => {
+      syncLookupClearButtons();
+      fetchAndRenderEmployeeLookup(input, input.value, true);
+    });
+
+    input.addEventListener('click', () => {
+      const popover = document.getElementById('empLookupPopover');
+      if (popover && popover.classList.contains('hidden')) {
+        fetchAndRenderEmployeeLookup(input, input.value, true);
+      }
+    });
+
+    input.addEventListener('input', () => {
+      syncLookupClearButtons();
+      clearTimeout(lookupDebounceTimer);
+      lookupDebounceTimer = setTimeout(() => {
+        fetchAndRenderEmployeeLookup(input, input.value, false);
+      }, 150);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      const popover = document.getElementById('empLookupPopover');
+      const isOpen = popover && !popover.classList.contains('hidden') && activeLookupInput === input;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (!isOpen) {
+          fetchAndRenderEmployeeLookup(input, input.value, false);
+        } else if (lookupItems.length > 0) {
+          lookupActiveIndex = (lookupActiveIndex + 1) % lookupItems.length;
+          updateLookupHighlight();
+        }
+      } else if (e.key === 'ArrowUp') {
+        if (isOpen && lookupItems.length > 0) {
+          e.preventDefault();
+          lookupActiveIndex = (lookupActiveIndex - 1 + lookupItems.length) % lookupItems.length;
+          updateLookupHighlight();
+        }
+      } else if (e.key === 'Enter') {
+        if (isOpen && lookupActiveIndex >= 0 && lookupActiveIndex < lookupItems.length) {
+          e.preventDefault();
+          selectLookupEmployee(lookupItems[lookupActiveIndex].username);
+        }
+      } else if (e.key === 'Tab') {
+        closeEmployeeLookupPopover();
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (document.activeElement !== input) {
+          closeEmployeeLookupPopover();
+        }
+      }, 150);
+    });
+  });
+
+  window.addEventListener('resize', () => {
+    if (activeLookupInput) positionEmployeeLookupPopover(activeLookupInput);
+  });
+
+  document.querySelectorAll('.modal-body').forEach(mb => {
+    mb.addEventListener('scroll', () => {
+      if (activeLookupInput) positionEmployeeLookupPopover(activeLookupInput);
+    });
+  });
 }
 
 // ============================================================================
