@@ -57,6 +57,7 @@ public class CsvDataSeeder
     public async Task<SeedResult> EnsureSeededAsync(bool forceReseed = false, CancellationToken ct = default)
     {
         await _db.Database.EnsureCreatedAsync(ct);
+        await InstallationConfigMigrator.EnsureSchemaAndDefaultRowAsync(_db, ct);
 
         if (!forceReseed && await _db.Employees.AnyAsync(ct))
         {

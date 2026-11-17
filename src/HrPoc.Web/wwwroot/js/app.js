@@ -10,7 +10,13 @@ const state = {
   locations: [],
   countries: [],
   deptViewMode: 'table',
-  ccViewMode: 'table'
+  ccViewMode: 'table',
+  authStatus: null,
+  currentUser: null,
+  deptError: null,
+  ccError: null,
+  locError: null,
+  empError: null
 };
 
 // Utility: API helper using relative path so IIS virtual directories work seamlessly
@@ -23,7 +29,7 @@ async function api(path, options = {}) {
     try { data = JSON.parse(text); } catch { data = { message: text }; }
   }
   if (!res.ok) {
-    throw new Error((data && data.message) || `HTTP ${res.status}: ${res.statusText}`);
+    throw new Error((data && (data.message || data.error)) || `HTTP ${res.status}: ${res.statusText}`);
   }
   return data;
 }
@@ -68,49 +74,330 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindCostCenterEvents();
   bindLocationEvents();
 
+  // 1. Check URL query string for ?sso_error=...
+  const urlParams = new URLSearchParams(window.location.search);
+  const ssoError = urlParams.get('sso_error');
+  if (ssoError) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
+  // 2. Query Auth & Security Status
+  let authStatus = null;
+  try {
+    authStatus = await api('api/auth/status');
+    state.authStatus = authStatus;
+    state.currentUser = authStatus.user;
+  } catch (err) {
+    showToast(`Failed to determine authentication status: ${err.message}`, 'error');
+  }
+
+  // 3. Evaluate SSO Gate Condition
+  const needsSsoGate = authStatus && (
+    (authStatus.useOidcForWeb && !authStatus.isAuthenticated) ||
+    (ssoError && !authStatus.isAuthenticated)
+  );
+
+  if (needsSsoGate) {
+    renderSsoGate(authStatus, ssoError);
+    return; // STOP: Do not load HR data while unauthenticated on the gate screen!
+  }
+
+  // 4. Authenticated or Web OIDC is not enforced
+  hideSsoGate();
+  if (authStatus) {
+    renderTopbarSecurityPills(authStatus);
+    renderTopbarUserProfile(authStatus);
+    applyPermissionRestrictions(authStatus);
+  }
+
   await refreshAllReferenceData();
   await loadEmployees();
 });
 
-async function refreshAllReferenceData() {
-  try {
-    const [stats, depts, ccs, locs] = await Promise.all([
-      api('api/dashboard/stats'),
-      api('api/departments'),
-      api('api/costcenters'),
-      api('api/locations')
-    ]);
+// ============================================================================
+// SSO GATE & AUTH INTEGRATION
+// ============================================================================
+function renderSsoGate(authStatus, ssoError) {
+  const mainContent = document.getElementById('mainAppContent');
+  if (mainContent) mainContent.classList.add('hidden');
 
-    state.departments = depts;
-    state.costCenters = ccs;
-    state.locations = locs;
-    state.countries = stats.countries || [];
+  const btnAdd = document.getElementById('btnPrimaryAdd');
+  if (btnAdd) btnAdd.classList.add('hidden');
+  const btnReseed = document.getElementById('btnReseed');
+  if (btnReseed) btnReseed.classList.add('hidden');
 
-    renderDashboardStats(stats);
-    populateFilterDropdowns();
-    renderDepartments();
-    renderCostCenters();
-    renderLocations();
-  } catch (err) {
-    showToast(`Failed to load initial data: ${err.message}`, 'error');
+  const gate = document.getElementById('ssoGateSection');
+  if (gate) gate.classList.remove('hidden');
+
+  // Handle alert box
+  const alertBox = document.getElementById('ssoAlertBox');
+  const alertMsg = document.getElementById('ssoAlertMessage');
+  if (ssoError) {
+    alertBox.classList.remove('hidden');
+    alertBox.classList.remove('warning');
+    alertMsg.textContent = ssoError;
+  } else if (!authStatus.oidcConfigured) {
+    alertBox.classList.remove('hidden');
+    alertBox.classList.add('warning');
+    alertMsg.innerHTML = '<strong>OIDC Provider is not configured yet.</strong> Authority URL and Client ID must be configured in Settings before users can sign in with SSO.';
+  } else {
+    alertBox.classList.add('hidden');
+  }
+
+  // Prevent SSO sign in button if not configured
+  const btnSsoLogin = document.getElementById('btnSsoLogin');
+  if (btnSsoLogin) {
+    if (!authStatus.oidcConfigured) {
+      btnSsoLogin.addEventListener('click', (e) => {
+        e.preventDefault();
+        showToast('OIDC Provider is not configured. Please open Settings to enter connection details.', 'error');
+        const settingsBtn = document.getElementById('btnSsoSettings');
+        if (settingsBtn) settingsBtn.focus();
+      });
+    }
+  }
+
+  // Security summary
+  const summaryAuth = document.getElementById('ssoSummaryAuthority');
+  if (summaryAuth) summaryAuth.textContent = authStatus.authority || 'Not configured';
+
+  const summaryOData = document.getElementById('ssoSummaryOData');
+  if (summaryOData) {
+    summaryOData.innerHTML = authStatus.useOidcForOData
+      ? '<span class="sec-pill active">Protected (Bearer JWT)</span>'
+      : '<span class="sec-pill inactive">Open (Lab Mode)</span>';
+  }
+
+  const summaryAuthz = document.getElementById('ssoSummaryAuthz');
+  if (summaryAuthz) {
+    summaryAuthz.innerHTML = authStatus.useAuthorizationServer
+      ? '<span class="sec-pill active">Enforce AuthZ Rules</span>'
+      : '<span class="sec-pill inactive">Allow All</span>';
   }
 }
 
+function hideSsoGate() {
+  const gate = document.getElementById('ssoGateSection');
+  if (gate) gate.classList.add('hidden');
+
+  const mainContent = document.getElementById('mainAppContent');
+  if (mainContent) mainContent.classList.remove('hidden');
+
+  const btnAdd = document.getElementById('btnPrimaryAdd');
+  if (btnAdd) btnAdd.classList.remove('hidden');
+  const btnReseed = document.getElementById('btnReseed');
+  if (btnReseed) btnReseed.classList.remove('hidden');
+}
+
+function renderTopbarSecurityPills(authStatus) {
+  const container = document.getElementById('topbarSecurityPills');
+  if (!container) return;
+
+  const webPill = authStatus.useOidcForWeb
+    ? '<span class="sec-pill active" title="Web UI SSO is Enforced">Web SSO: On</span>'
+    : '<span class="sec-pill inactive" title="Direct Web UI Access">Web SSO: Off</span>';
+
+  const odataPill = authStatus.useOidcForOData
+    ? '<span class="sec-pill active" title="OData v4 requires Bearer token">OData: Protected</span>'
+    : '<span class="sec-pill inactive" title="OData v4 open access">OData: Open</span>';
+
+  const authzPill = authStatus.useAuthorizationServer
+    ? '<span class="sec-pill active" title="OAuth 2.0 API Authorization Server Rules Enforced">AuthZ: Enforced</span>'
+    : '<span class="sec-pill inactive" title="Allow All for Authenticated Users">AuthZ: Mode A</span>';
+
+  container.innerHTML = `${webPill} ${odataPill} ${authzPill}`;
+}
+
+function renderTopbarUserProfile(authStatus) {
+  const topbarUser = document.getElementById('topbarUser');
+  if (!topbarUser) return;
+
+  if (authStatus.isAuthenticated && authStatus.user) {
+    topbarUser.classList.remove('hidden');
+    const u = authStatus.user;
+
+    const avatar = document.getElementById('userAvatar');
+    if (avatar) avatar.textContent = (u.fullName || u.username || 'U').charAt(0).toUpperCase();
+
+    const nameEl = document.getElementById('userName');
+    if (nameEl) nameEl.textContent = u.fullName || u.username || 'User';
+
+    const permPill = document.getElementById('userPermPill');
+    if (permPill) {
+      if (u.canWrite) {
+        permPill.className = 'perm-pill full';
+        permPill.textContent = 'Full Access';
+      } else {
+        permPill.className = 'perm-pill readonly';
+        permPill.textContent = 'Read-Only';
+      }
+    }
+
+    const btnClaims = document.getElementById('btnUserClaims');
+    if (btnClaims) {
+      btnClaims.addEventListener('click', () => {
+        openUserClaimsModal(u);
+      });
+    }
+  } else {
+    topbarUser.classList.add('hidden');
+  }
+}
+
+function openUserClaimsModal(u) {
+  document.getElementById('modalUserFullName').textContent = u.fullName || u.username || 'User';
+  document.getElementById('modalUserSubject').textContent = u.subject || u.username || '—';
+  document.getElementById('modalUserEmail').textContent = u.email || 'None';
+
+  const permBadge = document.getElementById('modalUserPermBadge');
+  if (permBadge) {
+    permBadge.className = u.canWrite ? 'perm-pill full' : 'perm-pill readonly';
+    permBadge.textContent = u.canWrite ? 'Full Access' : 'Read-Only';
+  }
+
+  const scopesWrap = document.getElementById('modalUserScopes');
+  if (scopesWrap) {
+    const scopes = u.scopes || [];
+    scopesWrap.innerHTML = scopes.length
+      ? scopes.map(s => `<span class="scope-pill">${esc(s)}</span>`).join(' ')
+      : '<span style="color:var(--text-muted); font-size:12px;">(No scopes assigned)</span>';
+  }
+
+  const claimsBody = document.getElementById('modalUserClaimsBody');
+  if (claimsBody) {
+    const claims = u.claims || [];
+    claimsBody.innerHTML = claims.length
+      ? claims.map(c => `
+          <tr>
+            <td style="color:var(--primary); font-family:monospace; font-weight:600;">${esc(c.type)}</td>
+            <td style="font-family:monospace;">${esc(c.value)}</td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="2" style="color:var(--text-muted);">No claims available</td></tr>';
+  }
+
+  openModal('userClaimsModal');
+}
+
+function buildAccessDeniedBanner(entityName, errorMessage) {
+  return `
+    <div style="max-width: 580px; margin: 16px auto; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #d97706; border-radius: 8px; padding: 16px 20px; text-align: left; color: #92400e;">
+      <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px;">&#128274; Access Restricted — ${esc(entityName)}</div>
+      <div style="font-size: 12.5px; line-height: 1.5; word-break: break-word;">${esc(errorMessage)}</div>
+    </div>
+  `;
+}
+
+function renderAccessDeniedRow(colspan, entityName, errorMessage) {
+  return `
+    <tr>
+      <td colspan="${colspan}" style="text-align:center; padding: 16px 20px;">
+        ${buildAccessDeniedBanner(entityName, errorMessage)}
+      </td>
+    </tr>
+  `;
+}
+
+function syncPrimaryAddButton() {
+  const btnAdd = document.getElementById('btnPrimaryAdd');
+  if (!btnAdd) return;
+
+  const isReadOnly = state.currentUser && !state.currentUser.canWrite;
+  const tab = state.activeTab;
+  const tabRestricted =
+    (tab === 'employees' && !!state.empError) ||
+    (tab === 'departments' && !!state.deptError) ||
+    (tab === 'costcenters' && !!state.ccError) ||
+    (tab === 'locations' && !!state.locError);
+
+  if (isReadOnly) {
+    btnAdd.disabled = true;
+    btnAdd.title = 'Read-Only Access: Mutation operations are disabled under your current authorization scopes.';
+    btnAdd.style.opacity = '0.6';
+  } else if (tabRestricted) {
+    btnAdd.disabled = true;
+    btnAdd.title = 'Access Restricted: Your token audience does not permit access to this resource.';
+    btnAdd.style.opacity = '0.6';
+  } else {
+    btnAdd.disabled = false;
+    btnAdd.title = '';
+    btnAdd.style.opacity = '';
+  }
+}
+
+function applyPermissionRestrictions(authStatus) {
+  syncPrimaryAddButton();
+  if (authStatus.isAuthenticated && authStatus.user && !authStatus.user.canWrite) {
+    const btnReseed = document.getElementById('btnReseed');
+    if (btnReseed) {
+      btnReseed.disabled = true;
+      btnReseed.title = 'Read-Only Access: Reseeding is disabled.';
+      btnReseed.style.opacity = '0.6';
+    }
+  }
+}
+
+async function refreshAllReferenceData() {
+  const [statsRes, deptsRes, ccsRes, locsRes] = await Promise.allSettled([
+    api('api/dashboard/stats'),
+    api('api/departments'),
+    api('api/costcenters'),
+    api('api/locations')
+  ]);
+
+  if (deptsRes.status === 'fulfilled') {
+    state.departments = deptsRes.value || [];
+    state.deptError = null;
+  } else {
+    state.departments = [];
+    state.deptError = (deptsRes.reason && deptsRes.reason.message) || 'Access denied to Departments.';
+  }
+
+  if (ccsRes.status === 'fulfilled') {
+    state.costCenters = ccsRes.value || [];
+    state.ccError = null;
+  } else {
+    state.costCenters = [];
+    state.ccError = (ccsRes.reason && ccsRes.reason.message) || 'Access denied to Cost Centers.';
+  }
+
+  if (locsRes.status === 'fulfilled') {
+    state.locations = locsRes.value || [];
+    state.locError = null;
+  } else {
+    state.locations = [];
+    state.locError = (locsRes.reason && locsRes.reason.message) || 'Access denied to Locations.';
+  }
+
+  if (statsRes.status === 'fulfilled' && statsRes.value) {
+    state.countries = statsRes.value.countries || [];
+    renderDashboardStats(statsRes.value);
+  } else if (statsRes.status === 'rejected') {
+    showToast(`Failed to load dashboard stats: ${(statsRes.reason && statsRes.reason.message) || 'Unknown error'}`, 'error');
+  }
+
+  populateFilterDropdowns();
+  renderDepartments();
+  renderCostCenters();
+  renderLocations();
+  syncPrimaryAddButton();
+}
+
 function renderDashboardStats(stats) {
-  document.getElementById('statTotalEmployees').textContent = stats.totalEmployees.toLocaleString();
+  document.getElementById('statTotalEmployees').textContent = state.empError ? '🔒' : stats.totalEmployees.toLocaleString();
   document.getElementById('statActiveEmployees').textContent = stats.activeEmployees.toLocaleString();
   document.getElementById('statOnLeaveEmployees').textContent = stats.onLeaveEmployees.toLocaleString();
   document.getElementById('statTerminatedEmployees').textContent = stats.terminatedEmployees.toLocaleString();
 
-  document.getElementById('statTotalDepartments').textContent = stats.totalDepartments.toLocaleString();
-  document.getElementById('statTotalCostCenters').textContent = stats.totalCostCenters.toLocaleString();
-  document.getElementById('statTotalLocations').textContent = stats.totalLocations.toLocaleString();
+  document.getElementById('statTotalDepartments').textContent = state.deptError ? '🔒' : stats.totalDepartments.toLocaleString();
+  document.getElementById('statTotalCostCenters').textContent = state.ccError ? '🔒' : stats.totalCostCenters.toLocaleString();
+  document.getElementById('statTotalLocations').textContent = state.locError ? '🔒' : stats.totalLocations.toLocaleString();
   document.getElementById('statTotalCountries').textContent = (stats.countries || []).length;
 
-  document.getElementById('tabCountEmployees').textContent = stats.totalEmployees.toLocaleString();
-  document.getElementById('tabCountDepartments').textContent = stats.totalDepartments.toLocaleString();
-  document.getElementById('tabCountCostCenters').textContent = stats.totalCostCenters.toLocaleString();
-  document.getElementById('tabCountLocations').textContent = stats.totalLocations.toLocaleString();
+  document.getElementById('tabCountEmployees').textContent = state.empError ? '🔒' : stats.totalEmployees.toLocaleString();
+  document.getElementById('tabCountDepartments').textContent = state.deptError ? '🔒' : stats.totalDepartments.toLocaleString();
+  document.getElementById('tabCountCostCenters').textContent = state.ccError ? '🔒' : stats.totalCostCenters.toLocaleString();
+  document.getElementById('tabCountLocations').textContent = state.locError ? '🔒' : stats.totalLocations.toLocaleString();
 
   const badge = document.getElementById('dbProviderBadge');
   badge.textContent = `DB: ${stats.databaseProvider}`;
@@ -241,6 +528,8 @@ function switchTab(tabName) {
   else if (tabName === 'costcenters') primaryBtn.textContent = '+ New Cost Center';
   else if (tabName === 'locations') primaryBtn.textContent = '+ New Location';
   else primaryBtn.textContent = '+ New Employee';
+
+  syncPrimaryAddButton();
 }
 
 function bindModals() {
@@ -707,6 +996,8 @@ async function loadEmployees() {
 
   try {
     const data = await api(`api/employees?${params.toString()}`);
+    state.empError = null;
+    syncPrimaryAddButton();
     state.empTotalPages = Math.max(1, data.totalPages || 1);
 
     const start = data.totalCount === 0 ? 0 : (data.page - 1) * data.pageSize + 1;
@@ -761,7 +1052,12 @@ async function loadEmployees() {
       </tr>
     `).join('');
   } catch (err) {
-    showToast(`Failed to load employees: ${err.message}`, 'error');
+    state.empError = err.message;
+    syncPrimaryAddButton();
+    document.getElementById('empResultSummary').textContent = 'Access restricted by Authorization Server';
+    document.getElementById('statTotalEmployees').textContent = '🔒';
+    document.getElementById('tabCountEmployees').textContent = '🔒';
+    document.getElementById('empTableBody').innerHTML = renderAccessDeniedRow(10, 'Employees (/api/employees)', err.message);
   }
 }
 
@@ -910,6 +1206,21 @@ function bindDepartmentEvents() {
 }
 
 function renderDepartments() {
+  const btnAddDept = document.getElementById('btnAddDepartment');
+  if (btnAddDept) {
+    btnAddDept.disabled = !!state.deptError;
+    btnAddDept.style.opacity = state.deptError ? '0.6' : '';
+  }
+
+  const tbody = document.getElementById('deptTableBody');
+  const treeContainer = document.getElementById('deptTreeContainer');
+
+  if (state.deptError) {
+    tbody.innerHTML = renderAccessDeniedRow(8, 'Departments (/api/departments)', state.deptError);
+    treeContainer.innerHTML = buildAccessDeniedBanner('Departments (/api/departments)', state.deptError);
+    return;
+  }
+
   const term = (document.getElementById('deptSearch').value || '').trim().toLowerCase();
   const filtered = state.departments.filter(d =>
     !term ||
@@ -920,7 +1231,6 @@ function renderDepartments() {
     (d.deputyManagerUsername && d.deputyManagerUsername.toLowerCase().includes(term))
   );
 
-  const tbody = document.getElementById('deptTableBody');
   tbody.innerHTML = filtered.map(d => `
     <tr>
       <td><strong>${esc(d.name)}</strong></td>
@@ -944,7 +1254,6 @@ function renderDepartments() {
   `).join('');
 
   // Render hierarchy tree
-  const treeContainer = document.getElementById('deptTreeContainer');
   const byParent = new Map();
   filtered.forEach(d => {
     const pid = d.parentDepartmentId || 0;
@@ -1082,6 +1391,21 @@ function bindCostCenterEvents() {
 }
 
 function renderCostCenters() {
+  const btnAddCc = document.getElementById('btnAddCostCenter');
+  if (btnAddCc) {
+    btnAddCc.disabled = !!state.ccError;
+    btnAddCc.style.opacity = state.ccError ? '0.6' : '';
+  }
+
+  const tbody = document.getElementById('ccTableBody');
+  const treeContainer = document.getElementById('ccTreeContainer');
+
+  if (state.ccError) {
+    tbody.innerHTML = renderAccessDeniedRow(9, 'Cost Centers (/api/costcenters)', state.ccError);
+    treeContainer.innerHTML = buildAccessDeniedBanner('Cost Centers (/api/costcenters)', state.ccError);
+    return;
+  }
+
   const term = (document.getElementById('ccSearch').value || '').trim().toLowerCase();
   const filtered = state.costCenters.filter(c =>
     !term ||
@@ -1093,7 +1417,6 @@ function renderCostCenters() {
     (c.managerUsername && c.managerUsername.toLowerCase().includes(term))
   );
 
-  const tbody = document.getElementById('ccTableBody');
   tbody.innerHTML = filtered.map(c => `
     <tr>
       <td class="mono"><strong>${esc(c.code)}</strong></td>
@@ -1115,7 +1438,6 @@ function renderCostCenters() {
   `).join('');
 
   // Render Tree
-  const treeContainer = document.getElementById('ccTreeContainer');
   const byParent = new Map();
   filtered.forEach(c => {
     const pid = c.parentCostCenterId || 0;
@@ -1241,6 +1563,18 @@ function bindLocationEvents() {
 }
 
 function renderLocations() {
+  const btnAddLoc = document.getElementById('btnAddLocation');
+  if (btnAddLoc) {
+    btnAddLoc.disabled = !!state.locError;
+    btnAddLoc.style.opacity = state.locError ? '0.6' : '';
+  }
+
+  const tbody = document.getElementById('locTableBody');
+  if (state.locError) {
+    tbody.innerHTML = renderAccessDeniedRow(8, 'Locations (/api/locations)', state.locError);
+    return;
+  }
+
   const term = (document.getElementById('locSearch').value || '').trim().toLowerCase();
   const country = document.getElementById('locCountryFilter').value;
 
@@ -1257,7 +1591,6 @@ function renderLocations() {
     );
   });
 
-  const tbody = document.getElementById('locTableBody');
   tbody.innerHTML = filtered.map(l => `
     <tr>
       <td><span class="country-pill">${esc(l.countryShortcut || '—')}</span></td>

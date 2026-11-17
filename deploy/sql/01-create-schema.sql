@@ -129,3 +129,35 @@ BEGIN
 END
 GO
 
+IF OBJECT_ID(N'dbo.InstallationConfig', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[InstallationConfig] (
+        [Id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        [IISSiteName] NVARCHAR(256) NOT NULL,
+        [IISAppSubPath] NVARCHAR(256) NOT NULL,
+        [InstallPath] NVARCHAR(512) NOT NULL,
+        [AppPoolName] NVARCHAR(256) NOT NULL,
+        [AppSqlLogin] NVARCHAR(128) NOT NULL,
+        [AppUrl] NVARCHAR(512) NULL,
+        [Version] NVARCHAR(64) NOT NULL,
+        [InstalledAtUtc] DATETIME2 NOT NULL CONSTRAINT [DF_InstallationConfig_InstalledAtUtc] DEFAULT (SYSUTCDATETIME()),
+        [UpdatedAtUtc] DATETIME2 NOT NULL CONSTRAINT [DF_InstallationConfig_UpdatedAtUtc] DEFAULT (SYSUTCDATETIME()),
+        [UseOidcForWeb] BIT NOT NULL CONSTRAINT [DF_InstallationConfig_UseOidcForWeb] DEFAULT (0),
+        [UseOidcForOData] BIT NOT NULL CONSTRAINT [DF_InstallationConfig_UseOidcForOData] DEFAULT (0),
+        [UseAuthorizationServer] BIT NOT NULL CONSTRAINT [DF_InstallationConfig_UseAuthorizationServer] DEFAULT (0),
+        [OidcAuthority] NVARCHAR(512) NULL,
+        [OidcClientId] NVARCHAR(256) NULL,
+        [OidcClientSecret] NVARCHAR(512) NULL,
+        [OidcRedirectUri] NVARCHAR(512) NULL,
+        [OidcScopes] NVARCHAR(512) NULL CONSTRAINT [DF_InstallationConfig_OidcScopes] DEFAULT (N'openid profile email'),
+        [OidcRequireHttpsMetadata] BIT NOT NULL CONSTRAINT [DF_InstallationConfig_OidcRequireHttpsMetadata] DEFAULT (0),
+        [AuthzServerIssuer] NVARCHAR(512) NULL,
+        [AuthzAudience] NVARCHAR(512) NULL,
+        [AuthzReadScope] NVARCHAR(256) NULL CONSTRAINT [DF_InstallationConfig_AuthzReadScope] DEFAULT (N'hr:read'),
+        [AuthzWriteScope] NVARCHAR(256) NULL CONSTRAINT [DF_InstallationConfig_AuthzWriteScope] DEFAULT (N'hr:write'),
+        [AuthzRequiredClaimType] NVARCHAR(256) NULL,
+        [AuthzRequiredClaimValue] NVARCHAR(256) NULL
+    );
+END
+GO
+

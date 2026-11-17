@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "d8e91042-7b2a-4c19-9a14-019283746511",
     "name": "My Demo Corp — HR System PoC (OData v4 & REST API)",
-    "description": "Complete Postman collection for testing the My Demo Corp HR System PoC (v1.1).\n\n### Configuration Parameters (Collection Variables)\n- `baseUrl`: Base URL of the HR PoC application without trailing slash (default: `http://localhost/hr` when deployed to IIS, or `http://localhost:5080` for local `dotnet run`).\n- `employeeId`, `departmentId`, `costCenterId`, `locationId`: Sample IDs for single-record `GET(key)` requests.\n- `createdEmployeeId`, `createdDepartmentId`, `createdCostCenterId`, `createdLocationId`: Automatically populated when you execute the `POST` requests so you can immediately run `PATCH`, `PUT`, and `DELETE` in sequence.",
+    "description": "Complete Postman collection for testing the My Demo Corp HR System PoC (v1.3).\n\n### Configuration Parameters (Collection Variables)\n- `baseUrl`: Base URL of the HR PoC application without trailing slash (default: `http://localhost/hr` when deployed to IIS, or `http://localhost:5080` for local `dotnet run`).\n- `employeeId`, `departmentId`, `costCenterId`, `locationId`: Sample IDs for single-record `GET(key)` requests.\n- `createdEmployeeId`, `createdDepartmentId`, `createdCostCenterId`, `createdLocationId`: Automatically populated when you execute the `POST` requests so you can immediately run `PATCH`, `PUT`, and `DELETE` in sequence.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -50,9 +50,227 @@
       "key": "createdLocationId",
       "value": "9",
       "type": "string"
+    },
+    {
+      "key": "bearerToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "oidcAuthority",
+      "value": "https://idp.example.com/oidc/2",
+      "type": "string"
+    },
+    {
+      "key": "oidcClientId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "oidcClientSecret",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "authzAudience",
+      "value": "https://mydemocorp.com/hr",
+      "type": "string"
     }
   ],
   "item": [
+    {
+      "name": "0. OIDC & OAuth 2.0 Authorization Server (v1.3)",
+      "item": [
+        {
+          "name": "Get Auth Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "status"
+              ]
+            },
+            "description": "Returns current authentication state, whether OIDC is enabled for Web and/or OData, authorization server settings, and if authenticated, the caller's identity, scopes, and granted permissions."
+          }
+        },
+        {
+          "name": "Get OIDC & AuthZ Settings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings"
+              ]
+            },
+            "description": "Returns the complete installation configuration from `dbo.InstallationConfig`, including OIDC authority, client ID, masked client secret status, redirect URIs, scopes, and OAuth 2.0 Authorization Server parameters."
+          }
+        },
+        {
+          "name": "Request M2M Access Token from Token Endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json && json.access_token) {",
+                  "        pm.environment.set(\"bearerToken\", json.access_token);",
+                  "        pm.collectionVariables.set(\"bearerToken\", json.access_token);",
+                  "        console.log(\"Saved access_token to bearerToken variable successfully.\");",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{oidcClientId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "{{oidcClientSecret}}",
+                  "type": "text"
+                },
+                {
+                  "key": "resource",
+                  "value": "{{authzAudience}}",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "hr:read hr:write",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{oidcAuthority}}/token",
+              "host": [
+                "{{oidcAuthority}}"
+              ],
+              "path": [
+                "token"
+              ]
+            },
+            "description": "Requests an OAuth 2.0 Machine-to-Machine (M2M) Bearer Access Token from your OAuth 2.0 API Authorization Server using the client credentials grant, with the target `resource={{authzAudience}}` and scopes `hr:read hr:write`. The test script automatically saves the issued `access_token` into the `bearerToken` environment and collection variable so all subsequent OData v4 and REST requests inherit Bearer authentication automatically."
+          }
+        },
+        {
+          "name": "Test Token via HR PoC Backend",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"authority\": \"{{oidcAuthority}}\",\n  \"clientId\": \"{{oidcClientId}}\",\n  \"clientSecret\": \"{{oidcClientSecret}}\",\n  \"authzAudience\": \"{{authzAudience}}\",\n  \"scopes\": \"hr:read hr:write\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/settings/test-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "test-token"
+              ]
+            },
+            "description": "Instructs the HR PoC backend to execute a client_credentials token request against the configured OIDC Authority and validates the issued JWT structure and claims server-side."
+          }
+        },
+        {
+          "name": "Inspect Bearer Token & Permissions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{bearerToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/settings/inspect-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "inspect-token"
+              ]
+            },
+            "description": "Validates and decodes the `{{bearerToken}}` JWT against the OIDC discovery keys, returning header, payload, issuer validation, audience validation, lifetime check, extracted scopes, and whether read (`hr:read`) and write (`hr:write`) operations are permitted under current authorization server policy."
+          }
+        }
+      ]
+    },
     {
       "name": "1. OData v4 — Service & Metadata",
       "item": [
@@ -68,8 +286,12 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata"
+              ]
             },
             "description": "Returns the OData v4 Service Document listing all exposed EntitySets (Employees, Departments, CostCenters, Locations)."
           }
@@ -86,8 +308,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/$metadata",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "$metadata"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "$metadata"
+              ]
             },
             "description": "Returns the OData v4 CSDL XML schema used by IDM OData connectors to discover entities, keys, properties, and navigation properties."
           }
@@ -109,8 +336,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/Employees?$top=25&$skip=0&$count=true",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Employees"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Employees"
+              ],
               "query": [
                 {
                   "key": "$top",
@@ -141,8 +373,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/Employees?$filter=EmploymentStatus eq 'Active'&$select=Id,Username,PersonnelNumber,FirstName,LastName,Email,JobTitle,EmploymentStatus,HireDate,DepartmentStructuredName&$orderby=LastName asc&$top=25&$count=true",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Employees"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Employees"
+              ],
               "query": [
                 {
                   "key": "$filter",
@@ -180,8 +417,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/Employees?$filter=EmploymentStatus eq 'Terminated'&$expand=Department,CostCenter,Location&$top=20&$count=true",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Employees"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Employees"
+              ],
               "query": [
                 {
                   "key": "$filter",
@@ -215,8 +457,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/Employees?$filter=UpdatedAt gt 2026-01-01T00:00:00Z&$orderby=UpdatedAt desc&$top=50",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Employees"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Employees"
+              ],
               "query": [
                 {
                   "key": "$filter",
@@ -247,8 +494,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/Employees({{employeeId}})?$expand=Department,CostCenter,Location",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Employees({{employeeId}})"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Employees({{employeeId}})"
+              ],
               "query": [
                 {
                   "key": "$expand",
@@ -294,8 +546,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/odata/Employees",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Employees"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Employees"
+              ]
             },
             "description": "Creates a new Employee via OData v4. Note that you can pass either `DepartmentId`/`CostCenterId`/`LocationId` OR `DepartmentStructuredName`/`CostCenterStructuredName`/`LocationStructuredName` — the server automatically resolves and synchronizes the paired fields."
           }
@@ -324,8 +581,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/odata/Employees({{createdEmployeeId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Employees({{createdEmployeeId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Employees({{createdEmployeeId}})"
+              ]
             },
             "description": "Applies a partial OData `Delta<Employee>` update. Setting `EmploymentStatus` to `Terminated` automatically sets `TerminationDate` to today (UTC) if not explicitly provided."
           }
@@ -354,8 +616,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/odata/Employees({{createdEmployeeId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Employees({{createdEmployeeId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Employees({{createdEmployeeId}})"
+              ]
             }
           }
         },
@@ -366,8 +633,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/odata/Employees({{createdEmployeeId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Employees({{createdEmployeeId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Employees({{createdEmployeeId}})"
+              ]
             }
           }
         }
@@ -388,8 +660,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/Departments?$orderby=TreeLevel asc,StructuredName asc&$count=true",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Departments"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Departments"
+              ],
               "query": [
                 {
                   "key": "$orderby",
@@ -415,8 +692,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/Departments({{departmentId}})?$expand=ParentDepartment",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Departments({{departmentId}})"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Departments({{departmentId}})"
+              ],
               "query": [
                 {
                   "key": "$expand",
@@ -462,8 +744,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/odata/Departments",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Departments"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Departments"
+              ]
             }
           }
         },
@@ -487,8 +774,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/odata/Departments({{createdDepartmentId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Departments({{createdDepartmentId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Departments({{createdDepartmentId}})"
+              ]
             }
           }
         },
@@ -499,8 +791,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/odata/Departments({{createdDepartmentId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Departments({{createdDepartmentId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Departments({{createdDepartmentId}})"
+              ]
             }
           }
         }
@@ -521,8 +818,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/CostCenters?$orderby=StructuredName asc&$count=true",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "CostCenters"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "CostCenters"
+              ],
               "query": [
                 {
                   "key": "$orderby",
@@ -548,8 +850,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/CostCenters({{costCenterId}})?$expand=ParentCostCenter",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "CostCenters({{costCenterId}})"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "CostCenters({{costCenterId}})"
+              ],
               "query": [
                 {
                   "key": "$expand",
@@ -595,8 +902,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/odata/CostCenters",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "CostCenters"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "CostCenters"
+              ]
             }
           }
         },
@@ -620,8 +932,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/odata/CostCenters({{createdCostCenterId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "CostCenters({{createdCostCenterId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "CostCenters({{createdCostCenterId}})"
+              ]
             }
           }
         },
@@ -632,8 +949,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/odata/CostCenters({{createdCostCenterId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "CostCenters({{createdCostCenterId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "CostCenters({{createdCostCenterId}})"
+              ]
             }
           }
         }
@@ -654,8 +976,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/Locations?$filter=CountryShortcut eq 'DE'&$orderby=City asc&$count=true",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Locations"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Locations"
+              ],
               "query": [
                 {
                   "key": "$filter",
@@ -685,8 +1012,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/odata/Locations({{locationId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Locations({{locationId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Locations({{locationId}})"
+              ]
             }
           }
         },
@@ -726,8 +1058,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/odata/Locations",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Locations"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Locations"
+              ]
             }
           }
         },
@@ -751,8 +1088,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/odata/Locations({{createdLocationId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Locations({{createdLocationId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Locations({{createdLocationId}})"
+              ]
             }
           }
         },
@@ -763,8 +1105,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/odata/Locations({{createdLocationId}})",
-              "host": ["{{baseUrl}}"],
-              "path": ["odata", "Locations({{createdLocationId}})"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "odata",
+                "Locations({{createdLocationId}})"
+              ]
             }
           }
         }
@@ -785,8 +1132,14 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/api/dashboard/stats",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "dashboard", "stats"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dashboard",
+                "stats"
+              ]
             }
           }
         },
@@ -802,8 +1155,13 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/api/employees?page=1&pageSize=25&sortBy=lastName&sortDir=asc",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "employees"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "employees"
+              ],
               "query": [
                 {
                   "key": "page",
@@ -837,8 +1195,14 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/api/employees/next-identifiers?firstName=John&lastName=Doe",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "employees", "next-identifiers"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "employees",
+                "next-identifiers"
+              ],
               "query": [
                 {
                   "key": "firstName",
@@ -864,13 +1228,29 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/api/dashboard/reseed",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "dashboard", "reseed"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dashboard",
+                "reseed"
+              ]
             },
             "description": "Resets the SQL Server database back to the baseline CSV files (`MDC-HR-Data.csv`, `MDC-Department.csv`, `MDC-Costcenter.csv`, `MDC-Locations.csv`)."
           }
         }
       ]
     }
-  ]
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{bearerToken}}",
+        "type": "string"
+      }
+    ]
+  }
 }

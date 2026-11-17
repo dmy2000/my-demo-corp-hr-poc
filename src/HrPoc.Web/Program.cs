@@ -1,6 +1,9 @@
 using System.Text.Json.Serialization;
 using HrPoc.Web.Data;
+using HrPoc.Web.Middleware;
 using HrPoc.Web.Models;
+using HrPoc.Web.Services;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.OData;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OData.Edm;
@@ -34,6 +37,18 @@ builder.Services
             .AddRouteComponents("odata", GetEdmModel());
     });
 
+builder.Services.AddHttpClient();
+
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
+    {
+        options.Cookie.Name = "HrPoc.AuthSession";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+    });
+
 var connString = builder.Configuration.GetConnectionString("DefaultConnection");
 
 builder.Services.AddDbContext<HrDbContext>(options =>
@@ -45,6 +60,7 @@ builder.Services.AddDbContext<HrDbContext>(options =>
 });
 
 builder.Services.AddScoped<CsvDataSeeder>();
+builder.Services.AddSingleton<OidcAuthService>();
 
 var app = builder.Build();
 
@@ -85,6 +101,11 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 app.UseRouting();
+
+app.UseAuthentication();
+app.UseMiddleware<DynamicAuthMiddleware>();
+app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();

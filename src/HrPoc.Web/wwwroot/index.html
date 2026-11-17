@@ -4,15 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>My Demo Corp — HR System (PoC)</title>
-  <link rel="stylesheet" href="css/app.css?v=1.1.2" />
+  <link rel="stylesheet" href="css/app.css?v=1.3.0" />
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-brand">
       <div class="brand-logo">HR</div>
       <div>
-        <h1>My Demo Corp — HR System <span class="badge-poc">PoC v1.1</span></h1>
-        <p class="subtitle">Authoritative HR Data Source &bull; Windows Server / SQL Server / IIS &bull; OData v4 Enabled</p>
+        <h1>My Demo Corp — HR System <span class="badge-poc">PoC v1.3</span></h1>
+        <p class="subtitle">Authoritative HR Data Source &bull; Windows Server / SQL Server / IIS &bull; OData v4 Enabled <span id="topbarSecurityPills" class="security-pills-wrap"></span></p>
       </div>
     </div>
     <div class="topbar-actions">
@@ -20,6 +20,17 @@
         OData $metadata
       </a>
       <span id="dbProviderBadge" class="db-badge" title="Active Database Provider">DB: Loading...</span>
+      <a href="settings.html" class="btn btn-outline btn-sm" title="Identity, OIDC &amp; Authorization Server Settings" style="text-decoration:none;">
+        &#9881; Settings
+      </a>
+      <div id="topbarUser" class="topbar-user hidden">
+        <button type="button" id="btnUserClaims" class="user-badge-btn" title="View granted OIDC Scopes and JWT Claims">
+          <span class="user-avatar" id="userAvatar">U</span>
+          <span id="userName">User</span>
+          <span id="userPermPill" class="perm-pill full">Full Access</span>
+        </button>
+        <a href="api/auth/logout" class="btn-signout" title="Sign out of SSO session">Sign Out</a>
+      </div>
       <button id="btnReseed" class="btn btn-outline btn-sm" title="Reset database to original CSV files">
         &#8635; Reset CSV Data
       </button>
@@ -30,8 +41,57 @@
   </header>
 
   <main class="container">
-    <!-- Summary KPI Strip -->
-    <section class="kpi-grid" id="kpiStrip">
+    <!-- SSO Welcome / Gate Screen (Shown when useOidcForWeb is active and user is not authenticated) -->
+    <section id="ssoGateSection" class="sso-gate-card hidden">
+      <div class="sso-gate-icon">&#128274;</div>
+      <h2 class="sso-gate-title">
+        My Demo Corp — HR System <span class="badge-poc">PoC v1.3</span>
+      </h2>
+      <p class="sso-gate-subtitle">Single Sign-On (SSO) Authentication Required</p>
+
+      <!-- Diagnostic Alert Box (shown if sso_error in query or !status.oidcConfigured) -->
+      <div id="ssoAlertBox" class="sso-alert-box hidden">
+        <div class="sso-alert-title">
+          <span>&#9888; Authentication Notice</span>
+        </div>
+        <div id="ssoAlertMessage"></div>
+        <div style="margin-top: 8px; font-size: 12px;">
+          You can open <strong>Settings</strong> below to configure your OpenID Provider parameters, or disable OIDC to access the system directly.
+        </div>
+      </div>
+
+      <!-- Action Buttons Side-by-Side -->
+      <div class="sso-btn-group">
+        <a id="btnSsoLogin" href="api/auth/login" class="btn-sso-primary">
+          &#128272; Sign in with SSO
+        </a>
+        <a id="btnSsoSettings" href="settings.html" class="btn-sso-settings">
+          &#9881; Settings (OIDC &amp; AuthZ Configuration)
+        </a>
+      </div>
+
+      <!-- Compact Security Summary -->
+      <div class="sso-summary-box">
+        <div class="sso-summary-title">Current Security Configuration</div>
+        <div class="sso-summary-row">
+          <span class="sso-summary-label">OpenID Connect Authority:</span>
+          <span class="sso-summary-val" id="ssoSummaryAuthority">—</span>
+        </div>
+        <div class="sso-summary-row">
+          <span class="sso-summary-label">OData v4 Bearer Protection:</span>
+          <span class="sso-summary-val" id="ssoSummaryOData">—</span>
+        </div>
+        <div class="sso-summary-row">
+          <span class="sso-summary-label">Authorization Server Mode:</span>
+          <span class="sso-summary-val" id="ssoSummaryAuthz">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main HR Application Content Wrapper -->
+    <div id="mainAppContent">
+      <!-- Summary KPI Strip -->
+      <section class="kpi-grid" id="kpiStrip">
       <div class="kpi-card kpi-clickable" data-tab="employees" data-status="">
         <div class="kpi-label">Total Employees</div>
         <div class="kpi-value" id="statTotalEmployees">—</div>
@@ -326,6 +386,7 @@
         </div>
       </div>
     </section>
+    </div> <!-- /mainAppContent -->
   </main>
 
   <!-- MODAL: EMPLOYEE CREATE / EDIT -->
@@ -650,10 +711,57 @@
     </div>
   </div>
 
+  <!-- MODAL: USER OIDC CLAIMS & SCOPES -->
+  <div id="userClaimsModal" class="modal-backdrop hidden">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h2>Active User Session &amp; OIDC Claims</h2>
+        <button class="modal-close" data-close="userClaimsModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <strong style="font-size:15px; color:#0f172a;" id="modalUserFullName">User</strong>
+            <span id="modalUserPermBadge" class="perm-pill full">Full Access</span>
+          </div>
+          <div style="font-size:12.5px; color:var(--text-muted); display:flex; flex-direction:column; gap:4px;">
+            <div>Username / Subject: <strong id="modalUserSubject" style="color:#0f172a; font-family:monospace;">—</strong></div>
+            <div>Email: <strong id="modalUserEmail" style="color:#0f172a;">—</strong></div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:14px;">
+          <label style="font-weight:600; font-size:12px; text-transform:uppercase; color:#475569;">Granted OIDC Scopes</label>
+          <div id="modalUserScopes" class="scopes-pills-list" style="margin-top:6px;"></div>
+        </div>
+
+        <div>
+          <label style="font-weight:600; font-size:12px; text-transform:uppercase; color:#475569;">Decoded Identity &amp; Token Claims</label>
+          <div style="overflow-x:auto; margin-top:6px; border:1px solid var(--border); border-radius:6px; max-height:280px;">
+            <table class="claims-table" style="margin:0;">
+              <thead>
+                <tr>
+                  <th>Claim Type</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody id="modalUserClaimsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="margin-top:18px;">
+          <a href="api/auth/logout" class="btn btn-danger btn-sm">Sign Out</a>
+          <button type="button" class="btn btn-outline btn-sm" data-close="userClaimsModal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="empLookupPopover" class="emp-lookup-popover hidden"></div>
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="js/app.js?v=1.1.2"></script>
+  <script src="js/app.js?v=1.3.0"></script>
 </body>
 </html>
 

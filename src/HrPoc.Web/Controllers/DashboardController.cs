@@ -82,7 +82,7 @@ public class DashboardController : ControllerBase
             totalLocations,
             countries,
             recentEmployees,
-            installedVersion = installedVersion ?? "1.1.2",
+            installedVersion = installedVersion ?? "1.3.0",
             databaseProvider = "SqlServer",
             serverTimeUtc = DateTime.UtcNow
         });

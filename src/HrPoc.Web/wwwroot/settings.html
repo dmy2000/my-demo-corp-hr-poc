@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Identity &amp; OIDC Settings — My Demo Corp HR System (PoC)</title>
+  <link rel="stylesheet" href="css/app.css?v=1.3.0" />
+</head>
+<body>
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="brand-logo">&#9881;</div>
+      <div>
+        <h1>My Demo Corp — HR System <span class="badge-poc">PoC v1.3</span></h1>
+        <p class="subtitle">Identity, OpenID Connect (OIDC) &amp; OAuth 2.0 Authorization Server Settings</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <a href="index.html" class="btn btn-outline btn-sm" style="text-decoration:none;">
+        &larr; Back to HR System
+      </a>
+      <button id="btnSaveSettingsTop" class="btn btn-primary btn-sm">
+        &#128190; Save All Settings
+      </button>
+    </div>
+  </header>
+
+  <main class="settings-container">
+    <!-- Header banner -->
+    <div style="margin-bottom: 24px;">
+      <h2 style="font-size: 22px; font-weight: 700; color: #0f172a; margin: 0 0 6px;">
+        Identity &amp; Access Management Configuration
+      </h2>
+      <p style="font-size: 14px; color: var(--text-muted); margin: 0;">
+        Configure OpenID Connect Single Sign-On (SSO), OData v4 Bearer Token Protection, and OAuth 2.0 API Authorization Server policies.
+      </p>
+    </div>
+
+    <!-- SECTION 1: AUTHENTICATION & AUTHORIZATION MODE TOGGLES -->
+    <section class="settings-section-card">
+      <div class="settings-section-title">
+        <span>1. Authentication &amp; Authorization Modes</span>
+        <span class="badge-poc">Security Policy</span>
+      </div>
+      <p class="settings-section-subtitle">
+        Control how authentication is enforced for Web UI interactive sessions and OData v4 programmatic API consumers.
+      </p>
+
+      <!-- Toggle 1: Web UI OIDC -->
+      <div class="toggle-card" id="cardUseOidcForWeb">
+        <div class="toggle-info">
+          <div class="toggle-title">
+            <span>Use OIDC for Web Interface</span>
+            <span id="badgeWebOidc" class="sec-pill inactive">Disabled</span>
+          </div>
+          <div class="toggle-desc">
+            When enabled, navigating to the HR System Web UI displays the SSO Welcome Gate screen, requiring users to authenticate via the OpenID Connect Identity Provider (IdP) before viewing, creating, or modifying HR records. If disabled, direct lab access is permitted.
+          </div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="useOidcForWeb" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- Toggle 2: OData OIDC -->
+      <div class="toggle-card" id="cardUseOidcForOData">
+        <div class="toggle-info">
+          <div class="toggle-title">
+            <span>Use OIDC / OAuth 2.0 Bearer for OData v4 API</span>
+            <span id="badgeODataOidc" class="sec-pill inactive">Disabled</span>
+          </div>
+          <div class="toggle-desc">
+            When enabled, all OData v4 endpoints (<code>/odata/*</code>) require a valid Bearer JWT access token in the <code>Authorization: Bearer &lt;token&gt;</code> HTTP header (or an active authenticated SSO cookie session). Unauthenticated API requests receive HTTP 401 Unauthorized.
+          </div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="useOidcForOData" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- Toggle 3: Authorization Policy Mode -->
+      <div style="margin-top: 20px;">
+        <label style="font-weight: 600; font-size: 14px; color: #0f172a; display: block; margin-bottom: 4px;">
+          Authorization Policy Mode (OData &amp; API Operations)
+        </label>
+        <p class="field-help" style="margin-bottom: 12px;">
+          Select how authorization is evaluated once an identity token has been verified.
+        </p>
+
+        <div class="mode-choice-grid">
+          <!-- Mode A -->
+          <div class="mode-choice-card selected" id="cardModeA">
+            <div class="mode-choice-header">
+              <input type="radio" name="authzMode" id="radioModeA" value="false" checked />
+              <label for="radioModeA" style="cursor:pointer; font-weight: 600;">Mode A: Allow All for Authenticated Users</label>
+            </div>
+            <div class="mode-choice-desc">
+              Any user or API client presenting a valid token or session from the configured OpenID Provider is granted full access to perform all Read and Write operations (<code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>PATCH</code>, <code>DELETE</code>). Scopes and audiences are not strictly enforced.
+            </div>
+          </div>
+
+          <!-- Mode B -->
+          <div class="mode-choice-card" id="cardModeB">
+            <div class="mode-choice-header">
+              <input type="radio" name="authzMode" id="radioModeB" value="true" />
+              <label for="radioModeB" style="cursor:pointer; font-weight: 600;">Mode B: Enforce Authorization Server Rules</label>
+            </div>
+            <div class="mode-choice-desc">
+              Enforces OAuth 2.0 Authorization Server rules: verifies the token contains the configured <strong>Audience (<code>aud</code>)</strong>, requires the <strong>Read Scope (<code>hr:read</code>)</strong> for <code>GET</code>, requires the <strong>Write Scope (<code>hr:write</code>)</strong> for mutations (<code>POST</code>, <code>PUT</code>, <code>PATCH</code>, <code>DELETE</code>), and checks optional custom claims.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: OPENID CONNECT PROVIDER CONFIGURATION -->
+    <section class="settings-section-card">
+      <div class="settings-section-title">
+        <span>2. OpenID Connect (OIDC) Provider Configuration</span>
+        <span class="badge-poc">OpenID Connect 1.0</span>
+      </div>
+      <p class="settings-section-subtitle">
+        Enter connection parameters from your OpenID Connect Identity Provider (IdP) client application.
+      </p>
+
+      <div class="form-grid-2">
+        <div class="form-field">
+          <label for="oidcAuthority">OIDC Authority / Issuer URL *</label>
+          <input type="url" id="oidcAuthority" placeholder="https://idp.example.com/oidc/2" />
+          <div class="field-help">Issuer / Authority URL of your OpenID Connect provider (metadata discovery at <code>.well-known/openid-configuration</code>).</div>
+        </div>
+
+        <div class="form-field">
+          <label for="oidcClientId">OIDC Application Client ID *</label>
+          <input type="text" id="oidcClientId" placeholder="e.g. 841b9810-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          <div class="field-help">The Client ID issued by your OpenID Connect Identity Provider.</div>
+        </div>
+      </div>
+
+      <div class="form-grid-2" style="margin-top: 14px;">
+        <div class="form-field">
+          <label for="oidcClientSecret">OIDC Client Secret</label>
+          <div class="input-password-wrap">
+            <input type="password" id="oidcClientSecret" placeholder="Enter new secret or leave masked" autocomplete="new-password" />
+            <button type="button" id="btnToggleSecret" class="btn-pw-toggle">Show</button>
+          </div>
+          <div class="field-help" id="secretHelpText">
+            Leaving as <code>••••••••</code> keeps the existing saved secret in <code>dbo.InstallationConfig</code>.
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="oidcScopes">Requested OIDC Scopes</label>
+          <div class="input-with-btn">
+            <input type="text" id="oidcScopes" value="openid profile email" placeholder="openid profile email" />
+            <button type="button" id="btnAddAuthzScopes" class="btn btn-outline btn-xs" title="Append configured Read and Write scopes into requested scopes">
+              + Add AuthZ Scopes
+            </button>
+          </div>
+          <div class="field-help">Space-separated list of scopes requested during interactive Web UI SSO login.</div>
+        </div>
+      </div>
+
+      <div class="form-grid-1" style="margin-top: 14px;">
+        <div class="form-field">
+          <label for="oidcRedirectUri">Custom Redirect URI Override (Optional)</label>
+          <input type="url" id="oidcRedirectUri" placeholder="Leave empty to auto-detect from IIS request host" />
+          <div class="field-help">
+            Only set if behind an external reverse proxy, SSL offloader, or custom vanity domain.
+          </div>
+        </div>
+      </div>
+
+      <!-- Copyable Computed Redirect URIs Box -->
+      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-top: 16px;">
+        <div style="font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-bottom: 8px;">
+          Application Redirect URIs (Copy &amp; Paste into your OIDC Identity Provider Configuration)
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="copy-input-group">
+            <span style="font-size: 12px; font-weight: 600; width: 140px; color: #334155;">Web Callback:</span>
+            <input type="text" id="computedRedirectUriVal" readonly value="Loading..." />
+            <button type="button" class="btn-copy" id="btnCopyRedirectUri">&#128203; Copy</button>
+          </div>
+          <div class="copy-input-group">
+            <span style="font-size: 12px; font-weight: 600; width: 140px; color: #334155;">OIDC Sign-In:</span>
+            <input type="text" id="computedSigninOidcUriVal" readonly value="Loading..." />
+            <button type="button" class="btn-copy" id="btnCopySigninOidcUri">&#128203; Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+        <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px;">
+          <input type="checkbox" id="oidcRequireHttpsMetadata" />
+          <span>Require HTTPS for OIDC Discovery metadata (Uncheck for local HTTP dev lab)</span>
+        </label>
+
+        <button type="button" id="btnTestDiscovery" class="btn btn-outline btn-sm">
+          &#128269; Test OIDC Discovery (.well-known/openid-configuration)
+        </button>
+      </div>
+
+      <!-- Discovery Diagnostic Results Panel -->
+      <div id="discoveryResultPanel" class="diag-panel hidden"></div>
+    </section>
+
+    <!-- SECTION 3: AUTHORIZATION SERVER SETTINGS (OAUTH 2.0) -->
+    <section class="settings-section-card">
+      <div class="settings-section-title">
+        <span>3. OAuth 2.0 Authorization Server Settings</span>
+        <span class="badge-poc">OAuth 2.0 / RFC 8707 / JWT</span>
+      </div>
+      <p class="settings-section-subtitle">
+        Configure the target Resource Identifier / Audience (<code>aud</code>), required scopes, and custom claims enforced by your OAuth 2.0 API Authorization Server.
+      </p>
+
+      <div class="form-grid-2">
+        <div class="form-field">
+          <label for="authzAudience">Resource Identifier / Audience (<code>aud</code>) *</label>
+          <div class="input-with-btn">
+            <input type="text" id="authzAudience" placeholder="https://mydemocorp.com/hr" />
+            <button type="button" id="btnUseServerResourceUri" class="btn btn-outline btn-xs" title="Set Resource Identifier to current server URL">
+              Use Server URL
+            </button>
+          </div>
+          <div class="field-help">
+            Passed as the <code>resource</code> parameter during token requests and verified in the JWT <code>aud</code> claim.
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="authzServerIssuer">Authorization Server Issuer Override (Optional)</label>
+          <input type="url" id="authzServerIssuer" placeholder="Leave empty to use OIDC Authority URL" />
+          <div class="field-help">
+            Only set if your API Authorization Server uses a dedicated issuer URL distinct from the primary OIDC authority.
+          </div>
+        </div>
+      </div>
+
+      <div class="form-grid-2" style="margin-top: 14px;">
+        <div class="form-field">
+          <label for="authzReadScope">Read Operations Scope (<code>GET</code>) *</label>
+          <input type="text" id="authzReadScope" value="hr:read" placeholder="hr:read" />
+          <div class="field-help">Scope required to query HR employees, departments, cost centers, and locations.</div>
+        </div>
+
+        <div class="form-field">
+          <label for="authzWriteScope">Write Operations Scope (<code>POST / PUT / PATCH / DELETE</code>) *</label>
+          <input type="text" id="authzWriteScope" value="hr:write" placeholder="hr:write" />
+          <div class="field-help">Scope required to create, update, or delete HR entities and run data reseeds.</div>
+        </div>
+      </div>
+
+      <div class="form-grid-2" style="margin-top: 14px;">
+        <div class="form-field">
+          <label for="authzRequiredClaimType">Required Custom Claim Type (Optional)</label>
+          <input type="text" id="authzRequiredClaimType" placeholder="e.g. roles, groups, or department" />
+          <div class="field-help">If specified, the token must include this claim type to be authorized.</div>
+        </div>
+
+        <div class="form-field">
+          <label for="authzRequiredClaimValue">Required Custom Claim Value (Optional)</label>
+          <input type="text" id="authzRequiredClaimValue" placeholder="e.g. HR Administrators" />
+          <div class="field-help">If specified, the token's claim value must match this string (case-insensitive).</div>
+        </div>
+      </div>
+
+      <!-- Copyable Authorization Server Configuration Box -->
+      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-top: 16px;">
+        <div style="font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-bottom: 8px;">
+          Authorization Server Configuration (Copy &amp; Paste into your OAuth 2.0 Authorization Server Form)
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="copy-input-group">
+            <span style="font-size: 12px; font-weight: 600; width: 225px; color: #334155;">Resource Identifier *:</span>
+            <input type="text" id="copyAuthzResourceVal" readonly value="https://mydemocorp.com/hr" />
+            <button type="button" class="btn-copy" id="btnCopyAuthzResource">&#128203; Copy</button>
+          </div>
+          <div class="copy-input-group">
+            <span style="font-size: 12px; font-weight: 600; width: 225px; color: #334155;">Audiences — All (OData + REST) *:</span>
+            <input type="text" id="copyAuthzAudiencesVal" readonly value="https://mydemocorp.com/hr/odata/Employees, https://mydemocorp.com/hr/odata/Departments, https://mydemocorp.com/hr/odata/CostCenters, https://mydemocorp.com/hr/odata/Locations, https://mydemocorp.com/hr/api/employees, https://mydemocorp.com/hr/api/departments, https://mydemocorp.com/hr/api/costcenters, https://mydemocorp.com/hr/api/locations" />
+            <button type="button" class="btn-copy" id="btnCopyAuthzAudiences">&#128203; Copy</button>
+          </div>
+          <div class="copy-input-group">
+            <span style="font-size: 12px; font-weight: 600; width: 225px; color: #334155;">Audiences — OData v4 Only:</span>
+            <input type="text" id="copyAuthzODataAudiencesVal" readonly value="https://mydemocorp.com/hr/odata/Employees, https://mydemocorp.com/hr/odata/Departments, https://mydemocorp.com/hr/odata/CostCenters, https://mydemocorp.com/hr/odata/Locations" />
+            <button type="button" class="btn-copy" id="btnCopyAuthzODataAudiences">&#128203; Copy</button>
+          </div>
+          <div class="copy-input-group">
+            <span style="font-size: 12px; font-weight: 600; width: 225px; color: #334155;">Audiences — REST API Only:</span>
+            <input type="text" id="copyAuthzRestAudiencesVal" readonly value="https://mydemocorp.com/hr/api/employees, https://mydemocorp.com/hr/api/departments, https://mydemocorp.com/hr/api/costcenters, https://mydemocorp.com/hr/api/locations" />
+            <button type="button" class="btn-copy" id="btnCopyAuthzRestAudiences">&#128203; Copy</button>
+          </div>
+          <div class="copy-input-group">
+            <span style="font-size: 12px; font-weight: 600; width: 225px; color: #334155;">Read Scope (GET):</span>
+            <input type="text" id="copyAuthzReadScopeVal" readonly value="hr:read" />
+            <button type="button" class="btn-copy" id="btnCopyAuthzReadScope">&#128203; Copy</button>
+          </div>
+          <div class="copy-input-group">
+            <span style="font-size: 12px; font-weight: 600; width: 225px; color: #334155;">Write Scope (POST/PUT/PATCH/DELETE):</span>
+            <input type="text" id="copyAuthzWriteScopeVal" readonly value="hr:write" />
+            <button type="button" class="btn-copy" id="btnCopyAuthzWriteScope">&#128203; Copy</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: LIVE TOKEN GENERATOR & JWT INSPECTOR (BUILT-IN TESTING TOOLS) -->
+    <section class="settings-section-card">
+      <div class="settings-section-title">
+        <span>4. Live Token Generator &amp; JWT Inspector (Diagnostic Tools)</span>
+        <span class="badge-poc">Developer Tools</span>
+      </div>
+      <p class="settings-section-subtitle">
+        Validate machine-to-machine (M2M) token issuance directly from your OAuth 2.0 Token Endpoint, inspect Bearer JWT tokens, and simulate API authorization policies.
+      </p>
+
+      <!-- Tool A: Request Token (client_credentials) -->
+      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin-bottom: 20px; background: #fafbfc;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #0f172a;">
+            Tool A: Request M2M Access Token (<code>client_credentials</code> grant)
+          </h3>
+          <button type="button" id="btnTestToken" class="btn btn-primary btn-sm">
+            &#9654; Request Token from Token Endpoint (client_credentials)
+          </button>
+        </div>
+        <p style="font-size: 12.5px; color: var(--text-muted); margin: 0 0 12px;">
+          Executes an OAuth 2.0 <code>client_credentials</code> token exchange against the token endpoint using the configured Client ID, Secret, Audience, and Scopes.
+        </p>
+
+        <div id="tokenResultPanel" class="diag-panel hidden"></div>
+      </div>
+
+      <!-- Tool B: Bearer JWT Token Inspector & Simulator -->
+      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 18px; background: #fafbfc;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #0f172a;">
+            Tool B: Bearer JWT Token Inspector &amp; Policy Simulator
+          </h3>
+          <button type="button" id="btnInspectToken" class="btn btn-outline btn-sm">
+            &#128269; Validate &amp; Check Permissions
+          </button>
+        </div>
+        <p style="font-size: 12.5px; color: var(--text-muted); margin: 0 0 10px;">
+          Paste any Bearer access token to verify its signature, issuer, audience, and evaluate whether it grants Read and Write permissions under current settings.
+        </p>
+
+        <div class="form-field">
+          <textarea id="inspectTokenInput" rows="3" placeholder="Paste Bearer JWT Access Token here (ey...)" style="font-family: monospace; font-size: 12px; width: 100%;"></textarea>
+        </div>
+
+        <div id="inspectResultPanel" class="diag-panel hidden"></div>
+      </div>
+    </section>
+
+    <!-- SECTION 5: SYSTEM INSTALLATION METADATA -->
+    <section class="settings-section-card">
+      <div class="settings-section-title">
+        <span>5. System Installation Metadata</span>
+        <span class="badge-poc">dbo.InstallationConfig</span>
+      </div>
+      <p class="settings-section-subtitle">
+        System environment and deployment parameters stored in the SQL Server installation configuration table.
+      </p>
+
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-item-label">IIS Site Name</span>
+          <span class="meta-item-val" id="metaIisSite">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-item-label">IIS App Sub-Path</span>
+          <span class="meta-item-val" id="metaIisSubPath">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-item-label">Application Pool</span>
+          <span class="meta-item-val" id="metaAppPool">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-item-label">Physical Install Path</span>
+          <span class="meta-item-val" id="metaInstallPath" style="font-size:12px; word-break:break-all;">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-item-label">Dedicated SQL Login</span>
+          <span class="meta-item-val" id="metaSqlLogin">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-item-label">System Version / Updated</span>
+          <span class="meta-item-val" id="metaVersion">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sticky Bottom Save Bar -->
+    <div class="settings-save-bar">
+      <div>
+        <span id="settingsSaveStatus" style="font-size: 13px; color: var(--text-muted);">
+          All changes remain local until saved to <code>dbo.InstallationConfig</code>.
+        </span>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <a href="index.html" class="btn btn-outline btn-sm">Cancel</a>
+        <button id="btnSaveSettingsBottom" class="btn btn-primary">
+          &#128190; Save All Settings
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="js/settings.js?v=1.3.0"></script>
+</body>
+</html>
